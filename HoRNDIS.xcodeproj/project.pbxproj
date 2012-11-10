@@ -1,0 +1,304 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		42BCD8B01645AFC500683BF7 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 42BCD8AE1645AFC500683BF7 /* InfoPlist.strings */; };
+		42BCD8B31645AFC500683BF7 /* HoRNDIS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		42BCD8A61645AFC500683BF7 /* HoRNDIS.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HoRNDIS.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		42BCD8AA1645AFC500683BF7 /* Kernel.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Kernel.framework; path = System/Library/Frameworks/Kernel.framework; sourceTree = SDKROOT; };
+		42BCD8AD1645AFC500683BF7 /* HoRNDIS-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "HoRNDIS-Info.plist"; sourceTree = SOURCE_ROOT; };
+		42BCD8AF1645AFC500683BF7 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		42BCD8B11645AFC500683BF7 /* HoRNDIS.h */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.c.h; path = HoRNDIS.h; sourceTree = SOURCE_ROOT; tabWidth = 8; };
+		42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.cpp.cpp; path = HoRNDIS.cpp; sourceTree = SOURCE_ROOT; tabWidth = 8; };
+		42BCD8B41645AFC500683BF7 /* HoRNDIS-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "HoRNDIS-Prefix.pch"; sourceTree = SOURCE_ROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		42BCD8A11645AFC500683BF7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		42BCD8991645AFC500683BF7 = {
+			isa = PBXGroup;
+			children = (
+				42BCD8AB1645AFC500683BF7 /* HoRNDIS */,
+				42BCD8A81645AFC500683BF7 /* Frameworks */,
+				42BCD8A71645AFC500683BF7 /* Products */,
+			);
+			sourceTree = "<group>";
+			usesTabs = 1;
+		};
+		42BCD8A71645AFC500683BF7 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				42BCD8A61645AFC500683BF7 /* HoRNDIS.kext */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		42BCD8A81645AFC500683BF7 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				42BCD8A91645AFC500683BF7 /* Other Frameworks */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		42BCD8A91645AFC500683BF7 /* Other Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				42BCD8AA1645AFC500683BF7 /* Kernel.framework */,
+			);
+			name = "Other Frameworks";
+			sourceTree = "<group>";
+		};
+		42BCD8AB1645AFC500683BF7 /* HoRNDIS */ = {
+			isa = PBXGroup;
+			children = (
+				42BCD8B11645AFC500683BF7 /* HoRNDIS.h */,
+				42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */,
+				42BCD8AC1645AFC500683BF7 /* Supporting Files */,
+			);
+			path = HoRNDIS;
+			sourceTree = "<group>";
+		};
+		42BCD8AC1645AFC500683BF7 /* Supporting Files */ = {
+			isa = PBXGroup;
+			children = (
+				42BCD8AD1645AFC500683BF7 /* HoRNDIS-Info.plist */,
+				42BCD8AE1645AFC500683BF7 /* InfoPlist.strings */,
+				42BCD8B41645AFC500683BF7 /* HoRNDIS-Prefix.pch */,
+			);
+			name = "Supporting Files";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXHeadersBuildPhase section */
+		42BCD8A21645AFC500683BF7 /* Headers */ = {
+			isa = PBXHeadersBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXHeadersBuildPhase section */
+
+/* Begin PBXNativeTarget section */
+		42BCD8A51645AFC500683BF7 /* HoRNDIS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 42BCD8B71645AFC500683BF7 /* Build configuration list for PBXNativeTarget "HoRNDIS" */;
+			buildPhases = (
+				42BCD8A01645AFC500683BF7 /* Sources */,
+				42BCD8A11645AFC500683BF7 /* Frameworks */,
+				42BCD8A21645AFC500683BF7 /* Headers */,
+				42BCD8A31645AFC500683BF7 /* Resources */,
+				42BCD8A41645AFC500683BF7 /* Rez */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HoRNDIS;
+			productName = HoRNDIS;
+			productReference = 42BCD8A61645AFC500683BF7 /* HoRNDIS.kext */;
+			productType = "com.apple.product-type.kernel-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		42BCD89B1645AFC500683BF7 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 0450;
+				ORGANIZATIONNAME = "Joshua Wise";
+			};
+			buildConfigurationList = 42BCD89E1645AFC500683BF7 /* Build configuration list for PBXProject "HoRNDIS" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = English;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+			);
+			mainGroup = 42BCD8991645AFC500683BF7;
+			productRefGroup = 42BCD8A71645AFC500683BF7 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				42BCD8A51645AFC500683BF7 /* HoRNDIS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		42BCD8A31645AFC500683BF7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				42BCD8B01645AFC500683BF7 /* InfoPlist.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXRezBuildPhase section */
+		42BCD8A41645AFC500683BF7 /* Rez */ = {
+			isa = PBXRezBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXRezBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		42BCD8A01645AFC500683BF7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				42BCD8B31645AFC500683BF7 /* HoRNDIS.cpp in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		42BCD8AE1645AFC500683BF7 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				42BCD8AF1645AFC500683BF7 /* en */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		42BCD8B51645AFC500683BF7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_SYMBOLS_PRIVATE_EXTERN = NO;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.8;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		42BCD8B61645AFC500683BF7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_C_LANGUAGE_STANDARD = gnu99;
+				GCC_ENABLE_OBJC_EXCEPTIONS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 10.8;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		42BCD8B81645AFC500683BF7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1.0.0d1;
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = "HoRNDIS-Prefix.pch";
+				GCC_VERSION = com.apple.compilers.llvmgcc42;
+				INFOPLIST_FILE = "HoRNDIS-Info.plist";
+				MACOSX_DEPLOYMENT_TARGET = 10.6;
+				MODULE_NAME = com.joshuawise.HoRNDIS;
+				MODULE_VERSION = 1.0.0d1;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx10.6;
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Debug;
+		};
+		42BCD8B91645AFC500683BF7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1.0.0d1;
+				GCC_PRECOMPILE_PREFIX_HEADER = YES;
+				GCC_PREFIX_HEADER = "HoRNDIS-Prefix.pch";
+				GCC_VERSION = com.apple.compilers.llvmgcc42;
+				INFOPLIST_FILE = "HoRNDIS-Info.plist";
+				MACOSX_DEPLOYMENT_TARGET = 10.6;
+				MODULE_NAME = com.joshuawise.HoRNDIS;
+				MODULE_VERSION = 1.0.0d1;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx10.6;
+				WRAPPER_EXTENSION = kext;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		42BCD89E1645AFC500683BF7 /* Build configuration list for PBXProject "HoRNDIS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				42BCD8B51645AFC500683BF7 /* Debug */,
+				42BCD8B61645AFC500683BF7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		42BCD8B71645AFC500683BF7 /* Build configuration list for PBXNativeTarget "HoRNDIS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				42BCD8B81645AFC500683BF7 /* Debug */,
+				42BCD8B91645AFC500683BF7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 42BCD89B1645AFC500683BF7 /* Project object */;
+}
