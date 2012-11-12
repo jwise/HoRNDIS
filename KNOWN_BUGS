@@ -1,0 +1,34 @@
+The following bugs have been sighted, but not root-caused:
+
+Certain sequences of loading and unloading the driver (and connecting and
+disconnecting the phone) can cause the driver to leak a refcount to itself. 
+For instance, the sequence --
+  plug in phone
+  set phone to tethering
+  load driver
+  do some operations...
+  unload driver
+  load driver
+    (checkbox on phone will have unticked itself; phone will be confused)
+  driver wedges during ::enable, since rndis driver on phone has died
+  unplug phone
+  attempt to unload driver
+results in the message --
+  (kernel) Can't unload kext com.joshuawise.kexts.HoRNDIS; classes have instances:
+  (kernel) Kext com.joshuawise.kexts.HoRNDIS class HoRNDIS has 1 instance.
+and the interesting commentary from the kernel --
+  bruges kernel[0]: HoRNDIS: outputPacket: waiting for buffer...
+  --- last message repeated 9 times ---
+  bruges kernel[0]: HoRNDIS: outputPacket: timed out waiting for buffer
+  bruges kernel[0]: HoRNDIS: dataWriteComplete: I/O error: e00002ed
+  bruges kernel[0]: HoRNDIS: clearPipeStall: pipe not stalled?
+  bruges kernel[0]: HoRNDIS: dataReadComplete: I/O aborted: device unplugged?
+  bruges.joshuawise.com configd[17]: DHCP en3: INIT transmit failed
+  bruges.joshuawise.com configd[17]: arp_client_open_fd: bpf_setif(en3) failed: Device not configured (6)
+  bruges kernel[0]: HoRNDIS: message: kIOMessageServiceWasClosed
+  bruges kernel[0]: HoRNDIS: rndisSetPacketFilter: SET not successful?
+  bruges kernel[0]: HoRNDIS: message: kIOMessageServiceIsTerminated
+  bruges kernel[0]: HoRNDIS: dataWriteComplete: I/O error: e00002eb
+  --- last message repeated 14 times ---
+
+
