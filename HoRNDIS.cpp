@@ -605,7 +605,7 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 		LOG(V_NOTE, "kIOMessageServiceIsAttemptingOpen");
 		break;
 	default:
-		LOG(V_NOTE, "unknown message type %08x", type);
+		LOG(V_NOTE, "unknown message type %08x", (unsigned int) type);
 		break;
 	}
 	
@@ -758,7 +758,7 @@ void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 remai
 	
 	if (rc == kIOReturnSuccess) {
 		/* Got one?  Hand it to the back end. */
-		LOG(V_DEBUG, "%d bytes", MAX_BLOCK_SIZE - remaining);
+		LOG(V_DEBUG, "%d bytes", (int)(MAX_BLOCK_SIZE - remaining));
 		me->receivePacket(me->inbuf.buf, MAX_BLOCK_SIZE - remaining);
 	} else {
 		LOG(V_ERROR, "dataReadComplete: I/O error: %08x", rc);
@@ -788,7 +788,7 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 	UInt32 submit;
 	IOReturn rv;
 	
-	LOG(V_DEBUG, "sz %d", size);
+	LOG(V_DEBUG, "sz %d", (int)size);
 	
 	if (size > MAX_BLOCK_SIZE) {
 		LOG(V_ERROR, "packet size error, packet dropped");

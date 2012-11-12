@@ -28,6 +28,7 @@
 
 #include <machine/limits.h>			/* UINT_MAX */
 #include <libkern/OSByteOrder.h>
+#include <libkern/OSTypes.h>
 
 #include <IOKit/network/IOEthernetController.h>
 #include <IOKit/network/IOEthernetInterface.h>
