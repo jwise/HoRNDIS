@@ -170,7 +170,7 @@ int HoRNDIS::probeConfigurations() {
 		IOUSBInterfaceDescriptor *intf;
 		IOReturn ior;
 		
-		LOG(V_DEBUG, "checking configuration");
+		LOG(V_DEBUG, "checking configuration %d", i);
 		
 	 	cd = fpDevice->GetFullConfigurationDescriptor(i);
 	 	if (!cd) {
@@ -182,17 +182,21 @@ int HoRNDIS::probeConfigurations() {
 		req.bInterfaceSubClass = 0x01;
 		req.bInterfaceProtocol = 0x03;
 		req.bAlternateSetting = kIOUSBFindInterfaceDontCare;
-		ior = fpDevice->FindNextInterfaceDescriptor(cd, intf, &req, &intf);
-		if (ior != kIOReturnSuccess)
+		ior = fpDevice->FindNextInterfaceDescriptor(cd, NULL, &req, &intf);
+		if (ior != kIOReturnSuccess) {
+			LOG(V_DEBUG, "no control interface for configuration");
 			continue;
+		}
 		
 		req.bInterfaceClass    = 0x0A;
 		req.bInterfaceSubClass = 0x00;
 		req.bInterfaceProtocol = 0x00;
 		req.bAlternateSetting = kIOUSBFindInterfaceDontCare;
 		ior = fpDevice->FindNextInterfaceDescriptor(cd, intf, &req, &intf);
-		if (ior != kIOReturnSuccess)
+		if (ior != kIOReturnSuccess) {
+			LOG(V_DEBUG, "no data interface for configuration");
 			continue;
+		}
 		
 		LOG(V_DEBUG, "interface descriptor found");
 		
@@ -752,7 +756,7 @@ void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 remai
 	IOReturn ior;
 	
 	if (rc == kIOReturnAborted || rc == kIOReturnNotResponding) {
-		LOG(V_ERROR, "I/O aborted: device unplugged?\n");
+		LOG(V_ERROR, "I/O aborted: device unplugged?");
 		return;
 	}
 	
