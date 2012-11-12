@@ -44,7 +44,7 @@ OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 bool HoRNDIS::init(OSDictionary *properties) {
 	int i;
 
-	LOG(V_NOTE, "HoRNDIS tethering driver for Mountain Lion, by Joshua Wise");
+	LOG(V_NOTE, "HoRNDIS tethering driver for Snow Leopard+, by Joshua Wise");
 	
 	if (super::init(properties) == false) {
 		LOG(V_ERROR, "initialize super failed");
@@ -58,7 +58,7 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	fpDevice = NULL;
 	fMediumDict = NULL;
 	
-	for (i=0; i<N_OUT_BUFS; i++) {
+	for (i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = NULL;
 		outbufs[i].buf = NULL;
 		outbufs[i].inuse = false;
@@ -67,10 +67,10 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	return true;
 }
 
+
 /***** Driver setup and teardown language *****/
 
-bool HoRNDIS::start(IOService *provider)
-{
+bool HoRNDIS::start(IOService *provider) {
 	int cfg;
 	int rc;
 	
@@ -84,7 +84,7 @@ bool HoRNDIS::start(IOService *provider)
 		return false;
 	}
 
-	// Now take control of the device and configure it		
+	/* Take control of the device before configuring. */
 	if (!fpDevice->open(this)) {
 		stop(provider);
 		return false;
@@ -122,38 +122,32 @@ bailout:
 	return false;
 }
 
-void HoRNDIS::stop(IOService *provider)
-{	
+void HoRNDIS::stop(IOService *provider) {
 	LOG(V_DEBUG, "stopping");
 	
-	if (fNetworkInterface)
-	{
+	if (fNetworkInterface) {
 		fNetworkInterface->release();
 		fNetworkInterface = NULL;
 	}
 
-	if (fCommInterface)	
-	{
+	if (fCommInterface) {
 		fCommInterface->close(this);
 		fCommInterface->release();
 		fCommInterface = NULL;	
 	}
 	
-	if (fDataInterface)	
-	{ 
+	if (fDataInterface) {
 		fDataInterface->close(this);	
 		fDataInterface->release();
 		fDataInterface = NULL;	
 	}
 
-	if (fpDevice)
-	{
+	if (fpDevice) {
 		fpDevice->close(this);
 		fpDevice = NULL;
 	}
 	
-	if (fMediumDict)
-	{
+	if (fMediumDict) {
 		fMediumDict->release();
 		fMediumDict = NULL;
 	}
@@ -161,11 +155,12 @@ void HoRNDIS::stop(IOService *provider)
 	super::stop(provider);
 }
 
-/* Find and activate an RNDIS-looking interface. XXX: wish I could include that in configureDevice, above... */
-int HoRNDIS::probeConfigurations()
-{
+/* Find and activate an RNDIS-looking interface. XXX: wish I could include that in configureDevice, below... */
+int HoRNDIS::probeConfigurations() {
 	int i;
 	int ncfgs = fpDevice->GetNumConfigurations();
+	
+	/* XXX: Should probe the string descriptors to make sure that they match with Linux's RNDIS gadget strings; binding to arbitrary RNDIS devices probably won't work. */
 	
 	LOG(V_DEBUG, "%d possible configs", ncfgs);
 	
@@ -209,8 +204,7 @@ int HoRNDIS::probeConfigurations()
 	return -1;
 }
 
-bool HoRNDIS::openInterfaces()
-{
+bool HoRNDIS::openInterfaces() {
 	IOUSBFindInterfaceRequest req;
 	IOUSBFindEndpointRequest epReq;
 	int rc;
@@ -257,8 +251,7 @@ bool HoRNDIS::openInterfaces()
 	epReq.maxPacketSize	= 0;
 	epReq.interval = 0;
 	fInPipe = fDataInterface->FindNextPipe(0, &epReq);
-	if (!fInPipe)
-	{
+	if (!fInPipe) {
 		LOG(V_ERROR, "no bulk input pipe");
 		goto bailout5;
 	}
@@ -266,8 +259,7 @@ bool HoRNDIS::openInterfaces()
 	
 	epReq.direction = kUSBOut;
 	fOutPipe = fDataInterface->FindNextPipe(0, &epReq);
-	if (!fOutPipe)
-	{
+	if (!fOutPipe) {
 		LOG(V_ERROR, "no bulk output pipe");
 		goto bailout5;
 	}
@@ -321,8 +313,7 @@ bool HoRNDIS::createNetworkInterface() {
 	LOG(V_DEBUG, "attaching and registering interface");
 	
 	/* MTU is initialized before we get here, so this is a safe time to do this. */
-	if (!attachInterface((IONetworkInterface **)&fNetworkInterface, true))
-	{
+	if (!attachInterface((IONetworkInterface **)&fNetworkInterface, true)) {
 		LOG(V_ERROR, "attachInterface failed?");	  
 		return false;
 	}
@@ -399,12 +390,13 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	
 	setLinkStatus(0, 0);
 	
-	// Release all resources
+	/* Release all resources */
 	releaseResources();
 	
 	fNetifEnabled = false;
 	
-	if (fTerminate) { /* Terminates also close the device in 'disable'. */
+	/* Terminates also close the device in 'disable'. */
+	if (fTerminate) {
 		fpDevice->close(this);
 		fpDevice = NULL;
 	}
@@ -620,11 +612,11 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 	return kIOReturnUnsupported;
 }
 
+
 /***** Packet transmit logic *****/
 
-UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param)
-{
-	mbuf_t m;				// current mbuf
+UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
+	mbuf_t m;
 	size_t pktlen = 0;
 	IOReturn ior = kIOReturnSuccess;
 	UInt32 poolIndx;
@@ -632,18 +624,16 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param)
 
 	LOG(V_DEBUG, "");
 	
-	// Count the total size of this packet
+	/* Count the total size of this packet */
 	m = packet;
-	while (m)
-	{
+	while (m) {
 		pktlen += mbuf_len(m);
 		m = mbuf_next(m);
 	}
 	
 	LOG(V_DEBUG, "%ld bytes", pktlen);
 	
-	if (pktlen > mtu)
-	{
+	if (pktlen > mtu) {
 		LOG(V_ERROR, "bad packet size");
 		fpNetStats->outputErrors++;
 		return false;
@@ -670,7 +660,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param)
 		return kIOReturnTimeout;
 	}
 	
-	// Start filling in the send buffer
+	/* Start filling in the send buffer */
 	struct rndis_data_hdr *hdr;
 	hdr = (struct rndis_data_hdr *)outbufs[poolIndx].buf;
 	
@@ -687,6 +677,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param)
 	
 	freePacket(packet);
 	
+	/* Now, fire it off! */
 	outbufs[poolIndx].comp.target    = this;
 	outbufs[poolIndx].comp.parameter = (void *)poolIndx;
 	outbufs[poolIndx].comp.action    = dataWriteComplete;
@@ -709,14 +700,15 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param)
 	return kIOReturnOutputSuccess;
 }
 
-void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 remaining)
-{
+void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 remaining) {
 	HoRNDIS	*me = (HoRNDIS *)obj;
 	unsigned long poolIndx = (unsigned long)param;
 	
 	poolIndx = (unsigned long)param;
 	
 	LOG(V_DEBUG, "(rc %08x, poolIndx %ld)", rc, poolIndx);
+	
+	/* Free the buffer, and hand it off to anyone who might be waiting for one. */
 	me->outbufs[poolIndx].inuse = false;
 	
 	if (rc == kIOReturnSuccess)
@@ -745,6 +737,7 @@ IOReturn HoRNDIS::clearPipeStall(IOUSBPipe *thePipe) {
 	
 	return rc;
 }
+
 
 /***** Packet receive logic *****/
 
@@ -843,6 +836,7 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		packet = (char *)packet + hdr->msg_len;
 	}
 }
+
 
 /***** RNDIS command logic *****/
 
