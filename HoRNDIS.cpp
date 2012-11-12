@@ -637,8 +637,8 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	
 	LOG(V_DEBUG, "%ld bytes", pktlen);
 	
-	if (pktlen > mtu) {
-		LOG(V_ERROR, "bad packet size");
+	if (pktlen > (mtu + 14)) {
+		LOG(V_ERROR, "packet too large (%ld bytes, but I told you you could have %d!)", pktlen, mtu);
 		fpNetStats->outputErrors++;
 		return false;
 	}
@@ -809,7 +809,7 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		data_len = le32_to_cpu(hdr->data_len);
 		
 		if (hdr->msg_type != RNDIS_MSG_PACKET) {
-			LOG(V_ERROR, "non-PACKET over data channel?");
+			LOG(V_ERROR, "non-PACKET over data channel? (msg_type %08x)", hdr->msg_type);
 			return;
 		}
 		
@@ -1017,7 +1017,7 @@ bool HoRNDIS::rndisInit() {
 		return false;
 	}
 	
-	mtu = (uint32_t)(le32_to_cpu(u.init_c->mtu) - sizeof(struct rndis_data_hdr) - 36 /* hard_header_len on Linux */);
+	mtu = (uint32_t)(le32_to_cpu(u.init_c->mtu) - sizeof(struct rndis_data_hdr) - 36 /* hard_header_len on Linux */ - 14 /* ethernet headers */);
 	if (mtu > MAX_MTU)
 		mtu = MAX_MTU;
 	LOG(V_NOTE, "their MTU %d", mtu);
