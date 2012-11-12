@@ -639,22 +639,27 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 		return false;
 	}
 	
-	// Find an output buffer in the pool
-	for (i = 0; i < kOutBuffThreshold; i++) {
-		IOLockLock(outbuf_lock);
+	/* Find an output buffer in the pool */
+	IOLockLock(outbuf_lock);
+	for (i = 0; i < OUT_BUF_MAX_TRIES; i++) {
+		AbsoluteTime ivl, deadl;
+		
 		for (poolIndx = 0; poolIndx < N_OUT_BUFS; poolIndx++)
 			if (!outbufs[poolIndx].inuse) {
 				outbufs[poolIndx].inuse = true;
 				break;
 			}
-		IOUnlock(outbuf_lock);
 		if (poolIndx != N_OUT_BUFS)
 			break;
 		
+		/* "while", not "if".  See Symphony X's seminal work on this topic, /Paradise Lost/ (2007). */
+		nanoseconds_to_absolutetime(OUT_BUF_WAIT_TIME, &ivl);
+		clock_absolutetime_interval_to_deadline(ivl, &deadl);
 		LOG(V_NOTE, "waiting for buffer...");
-		/* This should become an IOLockSleep. */
-		IOSleep(1);
+		IOLockSleepDeadline(outbuf_lock, outbufs, deadl, THREAD_INTERRUPTIBLE);
 	}
+	IOLockUnlock(outbuf_lock);
+	
 	if (poolIndx == N_OUT_BUFS) {
 		LOG(V_ERROR, "timed out waiting for buffer");
 		return kIOReturnTimeout;
@@ -710,6 +715,7 @@ void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 rema
 	
 	/* Free the buffer, and hand it off to anyone who might be waiting for one. */
 	me->outbufs[poolIndx].inuse = false;
+	IOLockWakeup(me->outbuf_lock, me->outbufs, true);
 	
 	if (rc == kIOReturnSuccess)
 		return;

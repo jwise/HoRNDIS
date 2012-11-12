@@ -65,8 +65,9 @@ extern "C"
 
 #define kPipeStalled       1
 
-#define N_OUT_BUFS         6
-#define kOutBuffThreshold  100
+#define N_OUT_BUFS         16
+#define OUT_BUF_MAX_TRIES  10 /* 50ms total */
+#define OUT_BUF_WAIT_TIME  5000000 /* ns */
 
 #define MAX_MTU 1536
 
