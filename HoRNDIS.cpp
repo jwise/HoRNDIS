@@ -39,6 +39,7 @@
 #define super IOEthernetController
 
 OSDefineMetaClassAndStructors(HoRNDIS, IOEthernetController);
+OSDefineMetaClassAndStructors(HoRNDISUSBInterface, HoRNDIS);
 OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 
 bool HoRNDIS::init(OSDictionary *properties) {
@@ -70,38 +71,30 @@ bool HoRNDIS::init(OSDictionary *properties) {
 
 /***** Driver setup and teardown language *****/
 
-bool HoRNDIS::start(IOService *provider) {
-	int cfg;
-	int rc;
+bool HoRNDISUSBInterface::start(IOService *provider) {
+	IOUSBInterface *intf;
+
+	intf = OSDynamicCast(IOUSBInterface, provider);
+	if (!intf) {
+		LOG(V_ERROR, "cast to IOUSBInterface failed?");
+		return false;
+	}
 	
-	LOG(V_DEBUG, "starting up");
+	fpDevice = intf->GetDevice();
+	
+	return HoRNDIS::start(provider);
+}
+
+bool HoRNDIS::start(IOService *provider) {
+		LOG(V_DEBUG, "starting up");
 	if(!super::start(provider))
 		return false;
 
-	fpDevice = OSDynamicCast(IOUSBDevice, provider);
-	if(!fpDevice) {
+	if (!fpDevice) {
 		stop(provider);
 		return false;
 	}
 
-	/* Take control of the device before configuring. */
-	if (!fpDevice->open(this)) {
-		stop(provider);
-		return false;
-	}
-	
-	/* Initialize and set the appropriate device configuration. */
-	cfg = probeConfigurations();
-	if (cfg < 0)
-		goto bailout;
-	
-	rc = fpDevice->SetConfiguration(this, cfg);
-	if (rc != kIOReturnSuccess) {
-		LOG(V_ERROR, "SetConfiguration on RNDIS config failed?");
-		return false;;
-	}
-
-	/* Now do the rest of the work to actually bring it up... */
 	if (!openInterfaces())
 		goto bailout;
 	if (!rndisInit())
@@ -142,70 +135,12 @@ void HoRNDIS::stop(IOService *provider) {
 		fDataInterface = NULL;	
 	}
 
-	if (fpDevice) {
-		fpDevice->close(this);
-		fpDevice = NULL;
-	}
-	
 	if (fMediumDict) {
 		fMediumDict->release();
 		fMediumDict = NULL;
 	}
 		
 	super::stop(provider);
-}
-
-/* Find and activate an RNDIS-looking interface. XXX: wish I could include that in configureDevice, below... */
-int HoRNDIS::probeConfigurations() {
-	int i;
-	int ncfgs = fpDevice->GetNumConfigurations();
-	
-	/* XXX: Should probe the string descriptors to make sure that they match with Linux's RNDIS gadget strings; binding to arbitrary RNDIS devices probably won't work. */
-	
-	LOG(V_DEBUG, "%d possible configs", ncfgs);
-	
-	for (i = 0; i < ncfgs; i++) {
-		IOUSBFindInterfaceRequest req;
-		const IOUSBConfigurationDescriptor *cd;
-		IOUSBInterfaceDescriptor *intf;
-		IOReturn ior;
-		
-		LOG(V_DEBUG, "checking configuration %d", i);
-		
-	 	cd = fpDevice->GetFullConfigurationDescriptor(i);
-	 	if (!cd) {
-			LOG(V_ERROR, "error retrieving configuration descriptor");
-			continue;
-		}
-		
-		req.bInterfaceClass    = 0xE0;
-		req.bInterfaceSubClass = 0x01;
-		req.bInterfaceProtocol = 0x03;
-		req.bAlternateSetting = kIOUSBFindInterfaceDontCare;
-		ior = fpDevice->FindNextInterfaceDescriptor(cd, NULL, &req, &intf);
-		if (ior != kIOReturnSuccess) {
-			LOG(V_DEBUG, "no control interface for configuration");
-			continue;
-		}
-		
-		req.bInterfaceClass    = 0x0A;
-		req.bInterfaceSubClass = 0x00;
-		req.bInterfaceProtocol = 0x00;
-		req.bAlternateSetting = kIOUSBFindInterfaceDontCare;
-		ior = fpDevice->FindNextInterfaceDescriptor(cd, intf, &req, &intf);
-		if (ior != kIOReturnSuccess) {
-			LOG(V_DEBUG, "no data interface for configuration");
-			continue;
-		}
-		
-		LOG(V_DEBUG, "interface descriptor found");
-		
-		/* Okay, we found it -- all set! */
-		return cd->bConfigurationValue;
-	}
-	
-	LOG(V_ERROR, "no RNDIS configuration that I can drive");
-	return -1;
 }
 
 bool HoRNDIS::openInterfaces() {

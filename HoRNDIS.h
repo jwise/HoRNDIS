@@ -271,7 +271,6 @@ private:
 	bool allocateResources(void);
 	void releaseResources(void);
 	bool openInterfaces();
-	int probeConfigurations();
 	bool createNetworkInterface(void);
 	UInt32 outputPacket(mbuf_t pkt, void *param);
 	IOReturn clearPipeStall(IOUSBPipe *thePipe);
@@ -296,6 +295,13 @@ public:
 	virtual IOOutputQueue *createOutputQueue(void);
 	virtual bool configureInterface(IONetworkInterface *netif);
 	virtual IONetworkInterface *createInterface();
+};
+
+/* If there are other ways to get access to a device, we probably want them here. */
+class HoRNDISUSBInterface : public HoRNDIS {
+	OSDeclareDefaultStructors(HoRNDISUSBInterface);
+public:
+	virtual bool start(IOService *provider);
 };
 
 class HoRNDISInterface : public IOEthernetInterface {
