@@ -581,7 +581,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	/* Find an output buffer in the pool */
 	IOLockLock(outbuf_lock);
 	for (i = 0; i < OUT_BUF_MAX_TRIES; i++) {
-		AbsoluteTime ivl, deadl;
+		uint64_t ivl, deadl;
 		
 		for (poolIndx = 0; poolIndx < N_OUT_BUFS; poolIndx++)
 			if (!outbufs[poolIndx].inuse) {
@@ -595,7 +595,8 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 		nanoseconds_to_absolutetime(OUT_BUF_WAIT_TIME, &ivl);
 		clock_absolutetime_interval_to_deadline(ivl, &deadl);
 		LOG(V_NOTE, "waiting for buffer...");
-		IOLockSleepDeadline(outbuf_lock, outbufs, deadl, THREAD_INTERRUPTIBLE);
+		
+		IOLockSleepDeadline(outbuf_lock, outbufs, *(AbsoluteTime *)&deadl, THREAD_INTERRUPTIBLE);
 	}
 	IOLockUnlock(outbuf_lock);
 	
