@@ -155,8 +155,17 @@ bool HoRNDIS::openInterfaces() {
 	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
 	fCommInterface = fpDevice->FindNextInterface(NULL, &req);
-	if (!fCommInterface)
-		return false;
+	if (!fCommInterface) {
+		/* Maybe it's one of those stupid Galaxy S IIs? (issue #5) */
+		req.bInterfaceClass    = 0x02;
+		req.bInterfaceSubClass = 0x02;
+		req.bInterfaceProtocol = 0xFF;
+		req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
+		
+		fCommInterface = fpDevice->FindNextInterface(NULL, &req);
+		if (!fCommInterface) /* Okay, I really have no clue.  Oh well. */
+			return false;
+	}
 
 	rc = fCommInterface->open(this);
 	if (!rc)
