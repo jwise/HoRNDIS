@@ -37,9 +37,9 @@
 			<key>bInterfaceClass</key>
 			<integer>2</integer>
 			<key>bInterfaceProtocol</key>
-			<integer>2</integer>
-			<key>bInterfaceSubClass</key>
 			<integer>255</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>2</integer>
 		</dict>
 		<key>HoRNDISDevice3</key>
 		<dict>
