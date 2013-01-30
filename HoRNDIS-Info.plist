@@ -105,13 +105,13 @@
 	<key>OSBundleLibraries</key>
 	<dict>
 		<key>com.apple.kpi.mach</key>
-		<string>10.8</string>
+		<string>8.0</string>
 		<key>com.apple.kpi.libkern</key>
-		<string>10.8</string>
+		<string>8.0</string>
 		<key>com.apple.kpi.iokit</key>
-		<string>10.8</string>
+		<string>8.0</string>
 		<key>com.apple.kpi.bsd</key>
-		<string>10.8</string>
+		<string>8.0</string>
 		<key>com.apple.iokit.IONetworkingFamily</key>
 		<string>1.1</string>
 		<key>com.apple.iokit.IOUSBFamily</key>
