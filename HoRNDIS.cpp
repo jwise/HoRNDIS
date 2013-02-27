@@ -235,10 +235,20 @@ bailout1:
 /* We need our own createInterface (overriding the one in IOEthernetController) because we need our own subclass of IOEthernetInterface.  Why's that, you say?  Well, we need that because that's the only way to set a different default MTU.  Sigh... */
 
 bool HoRNDISInterface::init(IONetworkController * controller, int mtu) {
+	maxmtu = mtu;
 	if (IOEthernetInterface::init(controller) == false)
 		return false;
 	LOG(V_NOTE, "starting up with MTU %d", mtu);
 	setMaxTransferUnit(mtu);
+	return true;
+}
+
+bool HoRNDISInterface::setMaxTransferUnit(UInt32 mtu) {
+	if (mtu > maxmtu) {
+		LOG(V_NOTE, "Excuse me, but I said you could have an MTU of %u, and you just tried to set an MTU of %d.  Good try, buddy.", maxmtu, mtu);
+		return false;
+	}
+	IOEthernetInterface::setMaxTransferUnit(mtu);
 	return true;
 }
 
