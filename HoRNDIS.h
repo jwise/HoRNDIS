@@ -292,6 +292,7 @@ public:
 	virtual IOReturn getMaxPacketSize(UInt32 * maxSize) const;
 	virtual IOReturn selectMedium(const IONetworkMedium *medium);
 	virtual IOReturn getHardwareAddress(IOEthernetAddress *addr);
+	virtual IOReturn setPromiscuousMode(bool active);
 	virtual IOOutputQueue *createOutputQueue(void);
 	virtual bool configureInterface(IONetworkInterface *netif);
 	virtual IONetworkInterface *createInterface();

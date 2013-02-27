@@ -446,7 +446,7 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 	if (group == gIOEthernetWakeOnLANFilterGroup)
 		*filters = 0;
 	else if (group == gIONetworkFilterGroup)
-		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast;
+		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast | kIOPacketFilterPromiscuous;
 	else
 		rtn = super::getPacketFilters(group, filters);
 
@@ -489,6 +489,14 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 		ea->bytes[i] = bp[i];
 	
 	IOFree(buf, RNDIS_CMD_BUF_SZ);
+	return kIOReturnSuccess;
+}
+
+IOReturn HoRNDIS::setPromiscuousMode(bool active) {
+	(void) active;
+	
+	/* XXX This actually needs to get passed down to support 'real' RNDIS devices, but it will work okay for Android devices. */
+	
 	return kIOReturnSuccess;
 }
 
