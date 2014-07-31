@@ -456,7 +456,7 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 	if (group == gIOEthernetWakeOnLANFilterGroup)
 		*filters = 0;
 	else if (group == gIONetworkFilterGroup)
-		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast | kIOPacketFilterPromiscuous;
+		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast | kIOPacketFilterMulticast | kIOPacketFilterPromiscuous;
 	else
 		rtn = super::getPacketFilters(group, filters);
 
