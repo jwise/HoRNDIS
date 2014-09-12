@@ -14,7 +14,7 @@ ifeq (joshua,$(USER))
 	CODESIGN_INST ?= "Developer ID Installer: Joshua Wise (54GTJ2AU36)"
 endif
 
-all: build/Release/HoRNDIS.kext build/signed/HoRNDIS.kext
+all: build/Release/HoRNDIS.kext build/signed/HoRNDIS.kext build/HoRNDIS.pkg
 
 build/Release/HoRNDIS.kext: HoRNDIS.cpp HoRNDIS.h HoRNDIS-Info.plist HoRNDIS.xcodeproj HoRNDIS.xcodeproj/project.pbxproj
 	$(XCODEBUILD)
@@ -22,13 +22,18 @@ build/Release/HoRNDIS.kext: HoRNDIS.cpp HoRNDIS.h HoRNDIS-Info.plist HoRNDIS.xco
 build/HoRNDIS-kext.pkg: build/Release/HoRNDIS.kext
 	pkgbuild --component $< --install-location /System/Library/Extensions/ $@
 
-build/HoRNDIS.pkg: build/HoRNDIS-kext.pkg package/Distribution.xml
+build/HoRNDIS-signed-kext.pkg: build/signed/HoRNDIS.kext
+	pkgbuild --component $< --install-location /Library/Extensions/ $@
+
+build/HoRNDIS.pkg: build/HoRNDIS-kext.pkg build/HoRNDIS-signed-kext.pkg package/Distribution.xml
 	productbuild --distribution package/Distribution.xml --package-path build --resources package/resources $(if $(CODESIGN_INST),--sign $(CODESIGN_INST)) build/HoRNDIS.pkg
 
 ifeq (,$(CODESIGN_KEXT))
 
 build/signed/%: build/Release/%
 	@echo not building $@ because we have no key to sign with
+	@echo ...but, you can still use $<, if you want
+	@exit 1
 
 else
 
