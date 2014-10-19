@@ -103,7 +103,8 @@ bool HoRNDISUSBInterface::start(IOService *provider) {
 }
 
 bool HoRNDIS::start(IOService *provider) {
-		LOG(V_DEBUG, "starting up");
+	LOG(V_DEBUG, "start");
+	
 	if(!super::start(provider))
 		return false;
 
@@ -133,7 +134,7 @@ bailout:
 }
 
 void HoRNDIS::stop(IOService *provider) {
-	LOG(V_DEBUG, "stopping");
+	LOG(V_DEBUG, "stop");
 	
 	if (fNetworkInterface) {
 		fNetworkInterface->release();
@@ -322,7 +323,7 @@ bool HoRNDIS::createNetworkInterface() {
 		LOG(V_ERROR, "attachInterface failed?");	  
 		return false;
 	}
-	LOG(V_PTR, "fNetworkInterface: %p\n", fNetworkInterface);
+	LOG(V_PTR, "fNetworkInterface: %p", fNetworkInterface);
 	
 	fNetworkInterface->registerService();
 	
@@ -336,6 +337,8 @@ bool HoRNDIS::createNetworkInterface() {
 IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	IONetworkMedium	*medium;
 	IOReturn rtn = kIOReturnSuccess;
+	
+	LOG(V_DEBUG, "enable from tid %p", current_thread());
 
 	if (fNetifEnabled) {
 		LOG(V_ERROR, "already enabled?");
@@ -377,6 +380,8 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	/* Now we can say we're alive. */
 	fNetifEnabled = true;
 	
+	LOG(V_DEBUG, "done from tid %p", current_thread());
+	
 	return kIOReturnSuccess;
 	
 bailout:
@@ -386,6 +391,8 @@ bailout:
 }
  
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
+	LOG(V_DEBUG, "disable from tid %p", current_thread());
+	
 	/* Disable the queue (no more outputPacket), and then flush everything in the queue. */
 	getOutputQueue()->stop();
 	getOutputQueue()->setCapacity(0);
@@ -406,6 +413,8 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 		fpDevice->close(this);
 		fpDevice = NULL;
 	}
+	
+	LOG(V_DEBUG, "done from tid %p", current_thread());
 
 	return kIOReturnSuccess;
 }
@@ -429,6 +438,8 @@ bool HoRNDIS::createMediumTables() {
 
 bool HoRNDIS::allocateResources() {
 	int i;
+	
+	LOG(V_DEBUG, "allocateResources");
 	
 	/* Grab a memory descriptor pointer for data-in. */
 	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
@@ -500,7 +511,7 @@ bool HoRNDIS::configureInterface(IONetworkInterface *netif) {
 		return false;
 	}
 	
-	LOG(V_PTR, "fpNetStats: %p\n", fpNetStats);
+	LOG(V_PTR, "fpNetStats: %p", fpNetStats);
 	
 	return true;
 }
