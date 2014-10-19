@@ -52,18 +52,32 @@ bool HoRNDIS::init(OSDictionary *properties) {
 		return false;
 	}
 	
-	fDataDead = false;
-	
-	inbuf.mdp = NULL;
-	inbuf.buf = NULL;
-	fpDevice = NULL;
+	fNetworkInterface = NULL;
+	fpNetStats = NULL;
+
 	fMediumDict = NULL;
 	
+	fNetifEnabled = false;
+	fDataDead = false;
+	
+	fCommInterface = NULL;
+	fDataInterface = NULL;
+	
+	fInPipe = NULL;
+	fOutPipe = NULL;
+	
+	outbuf_lock = NULL;
 	for (i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = NULL;
 		outbufs[i].buf = NULL;
 		outbufs[i].inuse = false;
 	}
+	
+	
+	inbuf.mdp = NULL;
+	inbuf.buf = NULL;
+	fpDevice = NULL;
+	
 
 	return true;
 }
