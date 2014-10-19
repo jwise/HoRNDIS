@@ -422,8 +422,10 @@ void HoRNDIS::releaseResources() {
 		inbuf.mdp = NULL;
 	}
 	
-	if (outbuf_lock)
+	if (outbuf_lock) {
 		IOLockFree(outbuf_lock);
+		outbuf_lock = NULL;
+	}
 }
 
 IOOutputQueue* HoRNDIS::createOutputQueue() {
