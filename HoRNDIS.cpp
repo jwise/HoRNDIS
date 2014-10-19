@@ -409,6 +409,8 @@ bool HoRNDIS::allocateResources() {
 void HoRNDIS::releaseResources() {
 	int i;
 	
+	LOG(V_DEBUG, "releaseResources");
+	
 	for (i = 0; i < N_OUT_BUFS; i++)
 		if (outbufs[i].mdp) {
 			outbufs[i].mdp->release();
