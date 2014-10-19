@@ -160,6 +160,32 @@ void HoRNDIS::stop(IOService *provider) {
 	super::stop(provider);
 }
 
+/* Creating a workloop of our own seems to be necessary on Mac OS X 10.10 --
+ * otherwise, we can have not just reentrant calls to HoRNDIS::enable(), but
+ * also even to IOEthernetInterface::syncSIOCSIFFLAGS()!  Then, ::enable()
+ * "takes a while", which means that on a second call to syncSIOCSIFFLAGS,
+ * we get reentrantly invoked, and then -- worse yet -- we fail, and it
+ * disables the interface, freeing resources out from under the first
+ * ::enable().
+ *
+ * This "seems to fix it", but it's a workaround for something that I can't
+ * possible know, since source for OS X 10.10 does not exist yet.
+ *
+ * "This would never have happened if Steve Jobs were still CEO."
+ */
+
+bool HoRNDIS::createWorkLoop() {
+	LOG(V_DEBUG, "creating workloop");
+	workloop = IOWorkLoop::workLoop();
+	
+	return !!workloop;
+}
+
+IOWorkLoop *HoRNDIS::getWorkLoop() const {
+	return workloop;
+}
+
+
 bool HoRNDIS::openInterfaces() {
 	IOUSBFindInterfaceRequest req;
 	IOUSBFindEndpointRequest epReq;

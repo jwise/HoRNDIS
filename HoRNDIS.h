@@ -275,6 +275,8 @@ private:
 	UInt32 outputPacket(mbuf_t pkt, void *param);
 	IOReturn clearPipeStall(IOUSBPipe *thePipe);
 	void receivePacket(void *packet, UInt32 size);
+	
+	IOWorkLoop *workloop;
 
 public:
 	IOUSBDevice *fpDevice;
@@ -283,6 +285,8 @@ public:
 	virtual bool init(OSDictionary *properties = 0);
 	virtual bool start(IOService *provider);
 	virtual void stop(IOService *provider);
+	virtual bool createWorkLoop();
+	virtual IOWorkLoop *getWorkLoop() const;
 	virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
 
 	// IOEthernetController overrides
