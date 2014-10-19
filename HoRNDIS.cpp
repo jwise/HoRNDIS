@@ -29,9 +29,10 @@
 #include "HoRNDIS.h"
 
 #define MYNAME "HoRNDIS"
-#define V_DEBUG 0
-#define V_NOTE 1
-#define V_ERROR 2
+#define V_PTR 0
+#define V_DEBUG 1
+#define V_NOTE 2
+#define V_ERROR 3
 
 #define DEBUGLEVEL V_NOTE
 #define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog(MYNAME ": %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
@@ -51,6 +52,8 @@ bool HoRNDIS::init(OSDictionary *properties) {
 		LOG(V_ERROR, "initialize super failed");
 		return false;
 	}
+	
+	LOG(V_PTR, "PTR: I am: %p", this);
 	
 	fNetworkInterface = NULL;
 	fpNetStats = NULL;
@@ -169,6 +172,7 @@ bool HoRNDIS::openInterfaces() {
 	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
 	fCommInterface = fpDevice->FindNextInterface(NULL, &req);
+	LOG(V_PTR, "PTR: fCommInterface: %p", fCommInterface);
 	if (!fCommInterface) {
 		/* Maybe it's one of those stupid Galaxy S IIs? (issue #5) */
 		req.bInterfaceClass    = 0x02;
@@ -194,6 +198,7 @@ bool HoRNDIS::openInterfaces() {
 	fDataInterface = fpDevice->FindNextInterface(NULL, &req);	
 	if (!fDataInterface)
 		goto bailout2;
+	LOG(V_PTR, "PTR: fDataInterface: %p", fDataInterface);
 	
 	rc = fDataInterface->open(this);
 	if (!rc)
@@ -217,6 +222,7 @@ bool HoRNDIS::openInterfaces() {
 		LOG(V_ERROR, "no bulk input pipe");
 		goto bailout5;
 	}
+	LOG(V_PTR, "PTR: fInPipe: %p", fInPipe);
 	LOG(V_DEBUG, "bulk input pipe %p: max packet size %d, interval %d", fInPipe, epReq.maxPacketSize, epReq.interval);
 	
 	epReq.direction = kUSBOut;
@@ -225,6 +231,7 @@ bool HoRNDIS::openInterfaces() {
 		LOG(V_ERROR, "no bulk output pipe");
 		goto bailout5;
 	}
+	LOG(V_PTR, "PTR: fOutPipe: %p", fOutPipe);
 	LOG(V_DEBUG, "bulk output pipe %p: max packet size %d, interval %d", fOutPipe, epReq.maxPacketSize, epReq.interval);
 	
 	/* Currently, we don't even bother to listen on the interrupt pipe. */
@@ -289,6 +296,7 @@ bool HoRNDIS::createNetworkInterface() {
 		LOG(V_ERROR, "attachInterface failed?");	  
 		return false;
 	}
+	LOG(V_PTR, "fNetworkInterface: %p\n", fNetworkInterface);
 	
 	fNetworkInterface->registerService();
 	
@@ -382,6 +390,7 @@ bool HoRNDIS::createMediumTables() {
 	fMediumDict = OSDictionary::withCapacity(1);
 	if (fMediumDict == NULL)
 		return false;
+	LOG(V_PTR, "PTR: fMediumDict: %p", fMediumDict);
 	
 	medium = IONetworkMedium::medium(kIOMediumEthernetAuto, 480 * 1000000);
 	IONetworkMedium::addMedium(fMediumDict, medium);
@@ -399,18 +408,21 @@ bool HoRNDIS::allocateResources() {
 	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
 	if (!inbuf.mdp)
 		return false;
+	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp);
 	inbuf.mdp->setLength(MAX_BLOCK_SIZE);
 	inbuf.buf = (void *)inbuf.mdp->getBytesNoCopy();
 	
 	/* And a handful for data-out... */
 	LOG(V_DEBUG, "allocating %d buffers", N_OUT_BUFS);
 	outbuf_lock = IOLockAlloc();
+	LOG(V_PTR, "PTR: outbuf_lock: %p", outbuf_lock);
 	for (i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionOut);
 		if (!outbufs[i].mdp) {
 			LOG(V_ERROR, "allocate output descriptor failed");
 			return false;
 		}
+		LOG(V_PTR, "PTR: outbufs[%d].mdp: %p", i, outbufs[i].mdp);
 		
 		outbufs[i].mdp->setLength(MAX_BLOCK_SIZE);
 		outbufs[i].buf = (UInt8*)outbufs[i].mdp->getBytesNoCopy();
@@ -461,6 +473,8 @@ bool HoRNDIS::configureInterface(IONetworkInterface *netif) {
 		LOG(V_ERROR, "network statistics buffer unavailable?");
 		return false;
 	}
+	
+	LOG(V_PTR, "fpNetStats: %p\n", fpNetStats);
 	
 	return true;
 }
@@ -810,6 +824,7 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 			fpNetStats->inputErrors++;
 			return;
 		}
+		LOG(V_PTR, "PTR: mbuf: %p", m);
 		
 		rv = mbuf_copyback(m, 0, data_len, (char *)packet + data_ofs + 8, MBUF_WAITOK);
 		if (rv) {
@@ -836,7 +851,9 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	int rc = kIOReturnSuccess;
 	IOUSBDevRequestDesc rq;
 	IOBufferMemoryDescriptor *txdsc = IOBufferMemoryDescriptor::withCapacity(le32_to_cpu(buf->msg_len), kIODirectionOut);
+	LOG(V_PTR, "PTR: txdsc: %p", txdsc);
 	IOBufferMemoryDescriptor *rxdsc = IOBufferMemoryDescriptor::withCapacity(RNDIS_CMD_BUF_SZ, kIODirectionIn);
+	LOG(V_PTR, "PTR: rxdsc: %p", rxdsc);
 
 	if (buf->msg_type != RNDIS_MSG_HALT && buf->msg_type != RNDIS_MSG_RESET) {
 		/* lock? */
