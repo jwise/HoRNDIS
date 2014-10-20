@@ -3,7 +3,6 @@
     <title>HoRNDIS</title>
     <welcome file="intro-text.rtf" mime-type="application/rtf" />
     <conclusion file="post-readme.rtf" mime-type="application/rtf" />
-    <pkg-ref id="kext-unsigned"/>
     <options customize="never" hostArchitectures="i386,x86_64" require-scripts="false" rootVolumeOnly="true" />
     <os-version min="10.6" />
     <choices-outline>
@@ -11,11 +10,10 @@
             <line choice="com.joshuawise.kexts.HoRNDIS"/>
         </line>
     </choices-outline>
+    <pkg-ref id="kext"/>
     <choice id="default"/>
     <choice id="com.joshuawise.kexts.HoRNDIS" visible="false">
-        <pkg-ref id="kext-unsigned"/>
-        <pkg-ref id="kext-signed"/>
+        <pkg-ref id="kext"/>
     </choice>
-    <pkg-ref id="kext-unsigned" version="6.0.0" onConclusion="none">HoRNDIS-kext.pkg</pkg-ref>
-    <pkg-ref id="kext-signed" version="6.0.0" onConclusion="none">HoRNDIS-signed-kext.pkg</pkg-ref>
+    <pkg-ref id="kext" version="6.0.0" onConclusion="none">HoRNDIS-kext.pkg</pkg-ref>
 </installer-gui-script>
