@@ -46,7 +46,7 @@ OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 bool HoRNDIS::init(OSDictionary *properties) {
 	int i;
 
-	LOG(V_NOTE, "HoRNDIS tethering driver for Snow Leopard+, by Joshua Wise");
+	LOG(V_NOTE, "HoRNDIS tethering driver for Mac OS X, by Joshua Wise");
 	
 	if (super::init(properties) == false) {
 		LOG(V_ERROR, "initialize super failed");
@@ -445,7 +445,7 @@ bool HoRNDIS::allocateResources() {
 	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
 	if (!inbuf.mdp)
 		return false;
-	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp);
+	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp); /* does this i belong here? */
 	inbuf.mdp->setLength(MAX_BLOCK_SIZE);
 	inbuf.buf = (void *)inbuf.mdp->getBytesNoCopy();
 	
@@ -784,7 +784,7 @@ IOReturn HoRNDIS::clearPipeStall(IOUSBPipe *thePipe) {
 /***** Packet receive logic *****/
 
 void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 remaining) {
-	HoRNDIS	*me = (HoRNDIS*)obj;
+	HoRNDIS	*me = (HoRNDIS *)obj;
 	IOReturn ior;
 	
 	if (rc == kIOReturnAborted || rc == kIOReturnNotResponding) {
@@ -845,12 +845,12 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		data_ofs = le32_to_cpu(hdr->data_offset);
 		data_len = le32_to_cpu(hdr->data_len);
 		
-		if (hdr->msg_type != RNDIS_MSG_PACKET) {
+		if (hdr->msg_type != RNDIS_MSG_PACKET) { /* both are LE, so that's okay */
 			LOG(V_ERROR, "non-PACKET over data channel? (msg_type %08x)", hdr->msg_type);
 			return;
 		}
 		
-		if (hdr->msg_len > size) {
+		if (msg_len > size) {
 			LOG(V_ERROR, "msg_len too big?");
 			return;
 		}
@@ -880,8 +880,8 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		LOG(V_DEBUG, "submitted pkt sz %d", data_len);
 		fpNetStats->inputPackets++;
 		
-		size -= hdr->msg_len;
-		packet = (char *)packet + hdr->msg_len;
+		size -= msg_len;
+		packet = (char *)packet + msg_len;
 	}
 }
 
@@ -889,6 +889,8 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 /***** RNDIS command logic *****/
 
 int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
+	static IOLock *xid_lock = IOLockAlloc(); // TODO: memory leak? should NULL check on first call.
+
 	int count;
 	int rc = kIOReturnSuccess;
 	IOUSBDevRequestDesc rq;
@@ -898,10 +900,16 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	LOG(V_PTR, "PTR: rxdsc: %p", rxdsc);
 
 	if (buf->msg_type != RNDIS_MSG_HALT && buf->msg_type != RNDIS_MSG_RESET) {
-		/* lock? */
+		IOLockLock(xid_lock);
+		
+		/* lock? => Yes */
 		buf->request_id = cpu_to_le32(xid++);
 		if (!buf->request_id)
 			buf->request_id = cpu_to_le32(xid++);
+		
+		IOLockUnlock(xid_lock);
+		
+		LOG(V_DEBUG, "Generated xid: %d", xid);
 	}
 		
 	memcpy(txdsc->getBytesNoCopy(), buf, le32_to_cpu(buf->msg_len));
@@ -946,7 +954,7 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 				if (inbuf->status == RNDIS_STATUS_SUCCESS) {
 					/* ...and copy it out! */
 					LOG(V_DEBUG, "RNDIS command completed");
-					memcpy(buf, inbuf, le32_to_cpu(rxrq.wLenDone));
+					memcpy(buf, inbuf, rxrq.wLenDone);
 					break;
 				}
 				LOG(V_ERROR, "RNDIS command returned status %08x", inbuf->status);
@@ -956,16 +964,12 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 				LOG(V_ERROR, "RNDIS return had incorrect xid?");
 			}
 		} else {
-			switch (inbuf->msg_type) {
-				case RNDIS_MSG_INDICATE:
-					LOG(V_ERROR, "unsupported: RNDIS_MSG_INDICATE");
-					break;
-				case RNDIS_MSG_KEEPALIVE:
-					LOG(V_ERROR, "unsupported: RNDIS_MSG_KEEPALIVE");
-					break;
-				default:
-					LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x", inbuf->msg_type, inbuf->msg_len);
-					break;
+			if (inbuf->msg_type == RNDIS_MSG_INDICATE) {
+				LOG(V_ERROR, "unsupported: RNDIS_MSG_INDICATE");	
+			} else if (inbuf->msg_type == RNDIS_MSG_INDICATE) {
+				LOG(V_ERROR, "unsupported: RNDIS_MSG_KEEPALIVE");
+			} else {
+				LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x", inbuf->msg_type, inbuf->msg_len);
 			}
 		}
 		
@@ -1000,7 +1004,7 @@ int HoRNDIS::rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, 
 	
 	memset(u.get, 0, sizeof(*u.get) + in_len);
 	u.get->msg_type = RNDIS_MSG_QUERY;
-	u.get->msg_len = (uint32_t)cpu_to_le32(sizeof(*u.get) + in_len);
+	u.get->msg_len = cpu_to_le32(sizeof(*u.get) + in_len);
 	u.get->oid = oid;
 	u.get->len = cpu_to_le32(in_len);
 	u.get->offset = cpu_to_le32(20);
