@@ -58,8 +58,8 @@ extern "C"
 	#include <sys/mbuf.h>
 }
 
-#define cpu_to_le32(x) ((uint32_t)(x))
-#define le32_to_cpu(x) ((uint32_t)(x))
+#define cpu_to_le32(x) (uint32_t)OSSwapHostToLittleInt32(x)
+#define le32_to_cpu(x) (uint32_t)OSSwapLittleToHostInt32(x)
 
 #define TRANSMIT_QUEUE_SIZE     256
 #define MAX_BLOCK_SIZE		PAGE_SIZE
