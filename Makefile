@@ -23,7 +23,7 @@ endif
 all: build/Release/HoRNDIS.kext build/signed/HoRNDIS.kext build/HoRNDIS.pkg
 
 build/Release/HoRNDIS.kext: HoRNDIS.cpp HoRNDIS.h HoRNDIS-Info.plist HoRNDIS.xcodeproj HoRNDIS.xcodeproj/project.pbxproj
-	$(XCODEBUILD)
+	$(XCODEBUILD) -project HoRNDIS.xcodeproj
 
 build/root: build/Release/HoRNDIS.kext build/signed/HoRNDIS.kext
 	rm -rf build/root
