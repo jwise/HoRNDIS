@@ -76,12 +76,13 @@ bool HoRNDIS::init(OSDictionary *properties) {
 		outbufs[i].inuse = false;
 	}
 	
-	
 	inbuf.mdp = NULL;
 	inbuf.buf = NULL;
 	fpDevice = NULL;
 	
-
+	xid_lock = IOLockAlloc();
+	xid = 1;
+	
 	return true;
 }
 
@@ -156,6 +157,11 @@ void HoRNDIS::stop(IOService *provider) {
 	if (fMediumDict) {
 		fMediumDict->release();
 		fMediumDict = NULL;
+	}
+	
+	if (xid_lock) {
+		IOLockFree(xid_lock);
+		xid_lock = NULL;
 	}
 		
 	super::stop(provider);
@@ -889,8 +895,6 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 /***** RNDIS command logic *****/
 
 int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
-	static IOLock *xid_lock = IOLockAlloc(); // TODO: memory leak? should NULL check on first call.
-
 	int count;
 	int rc = kIOReturnSuccess;
 	IOUSBDevRequestDesc rq;
