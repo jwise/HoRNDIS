@@ -836,6 +836,11 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		struct rndis_data_hdr *hdr = (struct rndis_data_hdr *)packet;
 		uint32_t msg_len, data_ofs, data_len;
 		
+		if (size <= sizeof(struct rndis_data_hdr)) {
+			LOG(V_ERROR, "receivePacket() on too small packet? (size %d)", size);
+			return;
+		}
+		
 		msg_len = le32_to_cpu(hdr->msg_len);
 		data_ofs = le32_to_cpu(hdr->data_offset);
 		data_len = le32_to_cpu(hdr->data_len);
