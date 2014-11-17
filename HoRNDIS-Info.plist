@@ -13,13 +13,13 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.joshuawise.kexts.HoRNDIS</string>
 	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
+	<string>7.1</string>
 	<key>CFBundleName</key>
 	<string>HoRNDIS</string>
 	<key>CFBundlePackageType</key>
 	<string>KEXT</string>
 	<key>CFBundleShortVersionString</key>
-	<string>6</string>
+	<string>7.1</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
