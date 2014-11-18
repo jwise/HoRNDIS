@@ -13,7 +13,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.joshuawise.kexts.HoRNDIS</string>
 	<key>CFBundleInfoDictionaryVersion</key>
-	<string>7.1</string>
+	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>${PRODUCT_NAME}</string>
 	<key>CFBundlePackageType</key>
