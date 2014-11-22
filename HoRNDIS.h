@@ -252,7 +252,6 @@ private:
 	IOUSBPipe *fInPipe;
 	IOUSBPipe *fOutPipe;
 	
-	IOLock *xid_lock;
 	uint32_t xid;
 	uint32_t mtu;
 	
