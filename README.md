@@ -6,7 +6,8 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 
 ### Installation
 
-* navigate to `lastest_package` folder and run the installer `HoRNDIS-rel7.pkg`(release 7)(md5sum 45a1a7457966b1dc79897af2864f68e4)
+* Get the installation package (Download[^download_footer] or [Build](#building-the-source) the installation package from source yourself)
+* Run the installation package
 * Assuming that the installation proceeds without errors, after it completes, connect your phone to your Mac by USB.
 * Enter the settings menu on your phone.
 * In the connections section, below Wi-Fi and Bluetooth, select “More...”.
@@ -15,10 +16,13 @@ Select “Tethering & portable hotspot”.
 
 ### Uninstallation
 
-* delete the `HoRNDIS.kext` under `/System/Library/Extensions` and `/Library/Extensions` folder
-* restart your computer
+* Delete the `HoRNDIS.kext` under `/System/Library/Extensions` and `/Library/Extensions` folder
+* Restart your computer
 
 ### Building the source
 
+* `git clone` the repository
 * Simply running xcodebuild in the checkout directory should be sufficient to build the kext.
 * If you wish to package it up, you can run `make` to assemble the package in the build/ directory
+
+[^download_footer]: To download the installation package, please [visit](http://www.joshuawise.com/horndis)
