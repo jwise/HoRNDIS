@@ -34,7 +34,7 @@
 #define V_NOTE 2
 #define V_ERROR 3
 
-#define DEBUGLEVEL V_NOTE
+#define DEBUGLEVEL V_DEBUG
 #define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog(MYNAME ": %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
 
 #define super IOEthernetController
@@ -443,15 +443,13 @@ bool HoRNDIS::createMediumTables() {
 }
 
 bool HoRNDIS::allocateResources() {
-	int i;
-	
 	LOG(V_DEBUG, "allocateResources");
 	
 	/* Grab a memory descriptor pointer for data-in. */
 	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
 	if (!inbuf.mdp)
 		return false;
-	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp); /* does this i belong here? */
+	LOG(V_PTR, "PTR: inbuf.mdp: %p", inbuf.mdp); /* does this i belong here? Nope - Winsock */
 	inbuf.mdp->setLength(MAX_BLOCK_SIZE);
 	inbuf.buf = (void *)inbuf.mdp->getBytesNoCopy();
 	
@@ -459,7 +457,7 @@ bool HoRNDIS::allocateResources() {
 	LOG(V_DEBUG, "allocating %d buffers", N_OUT_BUFS);
 	outbuf_lock = IOLockAlloc();
 	LOG(V_PTR, "PTR: outbuf_lock: %p", outbuf_lock);
-	for (i = 0; i < N_OUT_BUFS; i++) {
+	for (int i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionOut);
 		if (!outbufs[i].mdp) {
 			LOG(V_ERROR, "allocate output descriptor failed");
@@ -586,72 +584,72 @@ IOReturn HoRNDIS::setPromiscuousMode(bool active) {
 }
 
 IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
-	IOReturn	ior;
+	IOReturn ior;
 	
 	switch (type) {
-	case kIOMessageServiceIsTerminated:
-		LOG(V_NOTE, "kIOMessageServiceIsTerminated");
-		
-		if (!fNetifEnabled) {
-			if (fCommInterface) {
-				fCommInterface->close(this);
-				fCommInterface->release();
-				fCommInterface = NULL;
+		case kIOMessageServiceIsTerminated:
+			LOG(V_NOTE, "kIOMessageServiceIsTerminated");
+			
+			if (!fNetifEnabled) {
+				if (fCommInterface) {
+					fCommInterface->close(this);
+					fCommInterface->release();
+					fCommInterface = NULL;
+				}
+				
+				if (fDataInterface) {
+					fDataInterface->close(this);
+					fDataInterface->release();
+					fDataInterface = NULL;
+				}
+				
+				fpDevice->close(this);
+				fpDevice = NULL;
 			}
 			
-			if (fDataInterface) {
-				fDataInterface->close(this);
-				fDataInterface->release();
-				fDataInterface = NULL;
-			}
+			releaseResources();
+			fTerminate = true;
+			return kIOReturnSuccess;
+		case kIOMessageServiceIsSuspended:
+			LOG(V_NOTE, "kIOMessageServiceIsSuspended");
+			break;
+		case kIOMessageServiceIsResumed:
+			LOG(V_NOTE, "kIOMessageServiceIsResumed");
+			break;
+		case kIOMessageServiceIsRequestingClose:
+			LOG(V_NOTE, "kIOMessageServiceIsRequestingClose");
+			break;
+		case kIOMessageServiceWasClosed:
+			LOG(V_NOTE, "kIOMessageServiceWasClosed");
+			break;
+		case kIOMessageServiceBusyStateChange:
+			LOG(V_NOTE, "kIOMessageServiceBusyStateChange");
+			break;
+		case kIOUSBMessagePortHasBeenResumed:
+			LOG(V_NOTE, "kIOUSBMessagePortHasBeenResumed");
 			
-			fpDevice->close(this);
-			fpDevice = NULL;
-		}
-		
-		fTerminate = true;
-		return kIOReturnSuccess;
-	case kIOMessageServiceIsSuspended:
-		LOG(V_NOTE, "kIOMessageServiceIsSuspended");
-		break;
-	case kIOMessageServiceIsResumed:
-		LOG(V_NOTE, "kIOMessageServiceIsResumed");
-		break;
-	case kIOMessageServiceIsRequestingClose:
-		LOG(V_NOTE, "kIOMessageServiceIsRequestingClose");
-		break;
-	case kIOMessageServiceWasClosed:
-		LOG(V_NOTE, "kIOMessageServiceWasClosed");
-		break;
-	case kIOMessageServiceBusyStateChange:
-		LOG(V_NOTE, "kIOMessageServiceBusyStateChange");
-		break;
-	case kIOUSBMessagePortHasBeenResumed:
-		LOG(V_NOTE, "kIOUSBMessagePortHasBeenResumed");
-		
-		/* Try to resurrect any dead reads. */
-		if (fDataDead) {
-			ior = fInPipe->Read(inbuf.mdp, &inbuf.comp, NULL);
-			if (ior == kIOReturnSuccess)
-				fDataDead = false;
-			else 
-				LOG(V_ERROR, "failed to queue Data pipe read");
-		}
-		
-		break;
-	case kIOUSBMessageHubResumePort:
-		LOG(V_NOTE, "kIOUSBMessageHubResumePort");
-		break;
-	case kIOMessageServiceIsAttemptingOpen:
-		LOG(V_NOTE, "kIOMessageServiceIsAttemptingOpen");
-		break;
-	default:
-		LOG(V_NOTE, "unknown message type %08x", (unsigned int) type);
-		break;
+			/* Try to resurrect any dead reads. */
+			if (fDataDead) {
+				ior = fInPipe->Read(inbuf.mdp, &inbuf.comp, NULL);
+				if (ior != kIOReturnSuccess)
+					LOG(V_ERROR, "failed to queue Data pipe read");
+			}
+			fDataDead = false;
+			return kIOReturnSuccess;
+		case kIOUSBMessageHubResumePort:
+			LOG(V_NOTE, "kIOUSBMessageHubResumePort");
+			break;
+		case kIOMessageServiceIsAttemptingOpen:
+			LOG(V_NOTE, "kIOMessageServiceIsAttemptingOpen");
+			break;
+		default:
+			LOG(V_NOTE, "unknown message type %08x", (unsigned int) type);
+			break;
 	}
 	
-	return kIOReturnUnsupported;
+	return super::message(type, provider, argument);;
 }
+
 
 
 /***** Packet transmit logic *****/
