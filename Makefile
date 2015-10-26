@@ -36,5 +36,5 @@ build/root: build/Release/HoRNDIS.kext build/Release-unsigned/HoRNDIS.kext
 build/HoRNDIS-kext.pkg: build/root
 	pkgbuild --identifier com.joshuawise.kexts.HoRNDIS --root $< $@
 
-build/HoRNDIS.pkg: build/HoRNDIS-kext.pkg package/Distribution.xml
+build/HoRNDIS.pkg: build/HoRNDIS-kext.pkg package/Distribution.xml Package/intro-text.rtf
 	productbuild --distribution package/Distribution.xml --package-path build --resources package/resources $(if $(CODESIGN_INST),--sign $(CODESIGN_INST)) build/HoRNDIS.pkg
