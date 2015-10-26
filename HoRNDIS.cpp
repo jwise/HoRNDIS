@@ -86,11 +86,12 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	return true;
 }
 
-
-/***** Driver setup and teardown language *****/
+/* IOKit class wrappers */
 
 bool HoRNDISUSBInterface::start(IOService *provider) {
 	IOUSBInterface *intf;
+	
+	LOG(V_DEBUG, "start, as IOUSBInterface");
 
 	intf = OSDynamicCast(IOUSBInterface, provider);
 	if (!intf) {
@@ -214,13 +215,17 @@ bool HoRNDIS::openInterfaces() {
 		req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 		
 		fCommInterface = fpDevice->FindNextInterface(NULL, &req);
-		if (!fCommInterface) /* Okay, I really have no clue.  Oh well. */
+		if (!fCommInterface) /* Okay, I really have no clue.  Oh well. */ {
+			LOG(V_ERROR, "RNDIS control interface not available?");
 			return false;
+		}
 	}
 
 	rc = fCommInterface->open(this);
-	if (!rc)
+	if (!rc) {
+		LOG(V_ERROR, "could not open RNDIS control interface?");
 		goto bailout1;
+	}
 
 	/* open up the RNDIS data interface */
 	req.bInterfaceClass    = 0x0A;
@@ -229,13 +234,17 @@ bool HoRNDIS::openInterfaces() {
 	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
 	fDataInterface = fpDevice->FindNextInterface(NULL, &req);	
-	if (!fDataInterface)
+	if (!fDataInterface) {
+		LOG(V_ERROR, "RNDIS data interface not available?");
 		goto bailout2;
+	}
 	LOG(V_PTR, "PTR: fDataInterface: %p", fDataInterface);
 	
 	rc = fDataInterface->open(this);
-	if (!rc)
+	if (!rc) {
+		LOG(V_ERROR, "could not open RNDIS data interface?");
 		goto bailout3;
+	}
 	
 	if (fDataInterface->GetNumEndpoints() < 2) {
 		LOG(V_ERROR, "not enough endpoints on data interface?");
@@ -283,6 +292,18 @@ bailout2:
 	fCommInterface->close(this);
 bailout1:
 	fCommInterface = NULL;
+bailout0:
+	/* Show what interfaces we saw. */
+	req.bInterfaceClass = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
+	
+	IOUSBInterface *ifc = NULL;
+	LOG(V_ERROR, "openInterfaces: before I fail, here are all the interfaces that I saw, in case you care ...");
+	while ((ifc = fpDevice->FindNextInterface(ifc, &req))) {
+		LOG(V_ERROR, "openInterfaces:   class 0x%02x, subclass 0x%02x, protocol 0x%02x", ifc->GetInterfaceClass(), ifc->GetInterfaceSubClass(), ifc->GetInterfaceProtocol());
+	}
+	
 	return false;
 }
 
