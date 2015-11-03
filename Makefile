@@ -7,50 +7,34 @@
 # /Applications/Xcode-4.6.3.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/. 
 # Don't you love backwards compatibility?
 
-XCODEBUILD ?= /Applications/Xcode-4.6.3.app/Contents/Developer/usr/bin/xcodebuild
+XCODEBUILD_ANCIENT ?= /Applications/Xcode-4.6.3.app/Contents/Developer/usr/bin/xcodebuild
+XCODEBUILD_MODERN ?= xcodebuild
 
 # Ok, no joy there?
-ifeq (,$(wildcard $(XCODEBUILD)))
-	XCODEBUILD = xcodebuild
+ifeq (,$(wildcard $(XCODEBUILD_ANCIENT)))
+	XCODEBUILD_ANCIENT = xcodebuild
 endif
 
-# Should we sign?  Hack hack.  Oh well.
-ifeq (joshua,$(USER))
-	CODESIGN_KEXT ?= "Developer ID Application: Joshua Wise (54GTJ2AU36)"
-	CODESIGN_INST ?= "Developer ID Installer: Joshua Wise (54GTJ2AU36)"
-endif
 
-all: build/Release/HoRNDIS.kext build/signed/HoRNDIS.kext build/HoRNDIS.pkg
+all: build/Release/HoRNDIS.kext build/Release-unsigned/HoRNDIS.kext build/HoRNDIS.pkg
 
+# We now sign as part of the xcodebuild process.  Also, 'release' is now
+# signed, as opposed to 'signed', which used to be signed.
 build/Release/HoRNDIS.kext: HoRNDIS.cpp HoRNDIS.h HoRNDIS-Info.plist HoRNDIS.xcodeproj HoRNDIS.xcodeproj/project.pbxproj
-	$(XCODEBUILD) -project HoRNDIS.xcodeproj
+	$(XCODEBUILD_MODERN) -project HoRNDIS.xcodeproj
 
-build/root: build/Release/HoRNDIS.kext build/signed/HoRNDIS.kext
+build/Release-unsigned/HoRNDIS.kext: HoRNDIS.cpp HoRNDIS.h HoRNDIS-Info.plist HoRNDIS.xcodeproj HoRNDIS.xcodeproj/project.pbxproj
+	$(XCODEBUILD_ANCIENT) -configuration Release-unsigned -project HoRNDIS.xcodeproj
+
+build/root: build/Release/HoRNDIS.kext build/Release-unsigned/HoRNDIS.kext
 	rm -rf build/root
 	mkdir -p build/root/System/Library/Extensions/
-	cp -R build/Release/HoRNDIS.kext build/root/System/Library/Extensions/
+	cp -R build/Release-unsigned/HoRNDIS.kext build/root/System/Library/Extensions/
 	mkdir -p build/root/Library/Extensions
-	cp -R build/signed/HoRNDIS.kext build/root/Library/Extensions/
+	cp -R build/Release/HoRNDIS.kext build/root/Library/Extensions/
 
 build/HoRNDIS-kext.pkg: build/root
 	pkgbuild --identifier com.joshuawise.kexts.HoRNDIS --root $< $@
 
 build/HoRNDIS.pkg: build/HoRNDIS-kext.pkg package/Distribution.xml
 	productbuild --distribution package/Distribution.xml --package-path build --resources package/resources $(if $(CODESIGN_INST),--sign $(CODESIGN_INST)) build/HoRNDIS.pkg
-
-ifeq (,$(CODESIGN_KEXT))
-
-build/signed/%: build/Release/%
-	@echo not building $@ because we have no key to sign with
-	@echo ...but, you can still use $<, if you want
-	@exit 1
-
-else
-
-build/signed/%: build/Release/%
-	rm -rf $@
-	mkdir -p build/signed
-	cp -R $< $@
-	codesign --force -s $(CODESIGN_KEXT) $@
-
-endif
