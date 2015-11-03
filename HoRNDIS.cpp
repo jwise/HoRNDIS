@@ -214,8 +214,10 @@ bool HoRNDIS::openInterfaces() {
 		req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 		
 		fCommInterface = fpDevice->FindNextInterface(NULL, &req);
-		if (!fCommInterface) /* Okay, I really have no clue.  Oh well. */
+		if (!fCommInterface) { /* Okay, I really have no clue.  Oh well. */
+			LOG(V_ERROR, "Couldn't find a matching RNDIS control interface!");
 			return false;
+		}
 	}
 
 	rc = fCommInterface->open(this);
