@@ -63,7 +63,7 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	fNetifEnabled = false;
 	fDataDead = false;
 	
-	fCommInterface = NULL;
+	fpInterface = NULL;
 	fDataInterface = NULL;
 	
 	fInPipe = NULL;
@@ -78,7 +78,6 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	
 	inbuf.mdp = NULL;
 	inbuf.buf = NULL;
-	fpDevice = NULL;
 	
 	xid_lock = IOLockAlloc();
 	xid = 1;
@@ -90,15 +89,11 @@ bool HoRNDIS::init(OSDictionary *properties) {
 /***** Driver setup and teardown language *****/
 
 bool HoRNDISUSBInterface::start(IOService *provider) {
-	IOUSBInterface *intf;
-
-	intf = OSDynamicCast(IOUSBInterface, provider);
-	if (!intf) {
+	fpInterface = OSDynamicCast(IOUSBInterface, provider);
+	if (!fpInterface) {
 		LOG(V_ERROR, "cast to IOUSBInterface failed?");
 		return false;
 	}
-	
-	fpDevice = intf->GetDevice();
 	
 	return HoRNDIS::start(provider);
 }
@@ -109,7 +104,7 @@ bool HoRNDIS::start(IOService *provider) {
 	if(!super::start(provider))
 		return false;
 
-	if (!fpDevice) {
+	if (!fpInterface) {
 		stop(provider);
 		return false;
 	}
@@ -128,8 +123,8 @@ bool HoRNDIS::start(IOService *provider) {
 	return true;
 
 bailout:
-	fpDevice->close(this);
-	fpDevice = NULL;
+	fpInterface->close(this);
+	fpInterface = NULL;
 	stop(provider);
 	return false;
 }
@@ -142,10 +137,10 @@ void HoRNDIS::stop(IOService *provider) {
 		fNetworkInterface = NULL;
 	}
 
-	if (fCommInterface) {
-		fCommInterface->close(this);
-		fCommInterface->release();
-		fCommInterface = NULL;	
+	if (fpInterface) {
+		fpInterface->close(this);
+		fpInterface->release();
+		fpInterface = NULL;	
 	}
 	
 	if (fDataInterface) {
@@ -192,11 +187,10 @@ IOWorkLoop *HoRNDIS::getWorkLoop() const {
 	return workloop;
 }
 
-
 bool HoRNDIS::openInterfaces() {
 	int rc;
 	
-	rc = fpDevice->open(this);
+	rc = fpInterface->open(this);
 	if (!rc) { /* Okay, I really have no clue.  Oh well. */
 		LOG(V_ERROR, "Couldn't open the RNDIS control interface!");
 		goto bailout1;
@@ -210,7 +204,7 @@ bool HoRNDIS::openInterfaces() {
 	req.bInterfaceProtocol = 0x00;
 	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
-	fDataInterface = fpDevice->FindNextInterface(NULL, &req);	
+	fDataInterface = fpInterface->GetDevice()->FindNextInterface(NULL, &req);
 	if (!fDataInterface) {
 		LOG(V_ERROR, "Couldn't find the matching RNDIS data interface!");
 		goto bailout2;
@@ -229,7 +223,7 @@ bool HoRNDIS::openInterfaces() {
 		goto bailout4;
 	}
 	
-	fCommInterface->retain();
+	fpInterface->retain();
 	fDataInterface->retain();
 	
 	/* open up the endpoints */
@@ -260,16 +254,16 @@ bool HoRNDIS::openInterfaces() {
 	return true;
 	
 bailout5:
-	fCommInterface->release();
+	fpInterface->release();
 	fDataInterface->release();
 bailout4:
 	fDataInterface->close(this);
 bailout3:
 	fDataInterface = NULL;
 bailout2:
-	fCommInterface->close(this);
+	fpInterface->close(this);
 bailout1:
-	fCommInterface = NULL;
+	fpInterface = NULL;
 	return false;
 }
 
@@ -403,8 +397,8 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	
 	/* Terminates also close the device in 'disable'. */
 	if (fTerminate) {
-		fpDevice->close(this);
-		fpDevice = NULL;
+		fpInterface->close(this);
+		fpInterface = NULL;
 	}
 	
 	LOG(V_DEBUG, "done from tid %p", current_thread());
@@ -580,10 +574,10 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 		LOG(V_NOTE, "kIOMessageServiceIsTerminated");
 		
 		if (!fNetifEnabled) {
-			if (fCommInterface) {
-				fCommInterface->close(this);
-				fCommInterface->release();
-				fCommInterface = NULL;
+			if (fpInterface) {
+				fpInterface->close(this);
+				fpInterface->release();
+				fpInterface = NULL;
 			}
 			
 			if (fDataInterface) {
@@ -591,9 +585,6 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 				fDataInterface->release();
 				fDataInterface = NULL;
 			}
-			
-			fpDevice->close(this);
-			fpDevice = NULL;
 		}
 		
 		fTerminate = true;
@@ -907,11 +898,11 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	rq.bRequest = USB_CDC_SEND_ENCAPSULATED_COMMAND;
 	rq.bmRequestType = USBmakebmRequestType(kUSBOut, kUSBClass, kUSBInterface);
 	rq.wValue = 0;
-	rq.wIndex = fCommInterface->GetInterfaceNumber();
+	rq.wIndex = fpInterface->GetInterfaceNumber();
 	rq.pData = txdsc;
 	rq.wLength = cpu_to_le32(buf->msg_len);
 		
-	if ((rc = fCommInterface->DeviceRequest(&rq)) != kIOReturnSuccess)
+	if ((rc = fpInterface->DeviceRequest(&rq)) != kIOReturnSuccess)
 		goto bailout;
 	
 	/* Linux polls on the status channel, too; hopefully this shouldn't be needed if we're just talking to Android. */
@@ -925,11 +916,11 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		rxrq.bRequest = USB_CDC_GET_ENCAPSULATED_RESPONSE;
 		rxrq.bmRequestType = USBmakebmRequestType(kUSBIn, kUSBClass, kUSBInterface);
 		rxrq.wValue = 0;
-		rxrq.wIndex = fCommInterface->GetInterfaceNumber();
+		rxrq.wIndex = fpInterface->GetInterfaceNumber();
 		rxrq.pData = rxdsc;
 		rxrq.wLength = RNDIS_CMD_BUF_SZ;
 				
-		if ((rc = fCommInterface->DeviceRequest(&rxrq)) != kIOReturnSuccess)
+		if ((rc = fpInterface->DeviceRequest(&rxrq)) != kIOReturnSuccess)
 			goto bailout;
 		
 		if (rxrq.wLenDone < 8) {

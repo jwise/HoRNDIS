@@ -280,7 +280,7 @@ private:
 	IOWorkLoop *workloop;
 
 public:
-	IOUSBDevice *fpDevice;
+	IOUSBInterface *fpInterface;
 
 	// IOKit overrides
 	virtual bool init(OSDictionary *properties = 0);
