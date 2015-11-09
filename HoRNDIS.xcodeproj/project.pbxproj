@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		42BCD8B01645AFC500683BF7 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 42BCD8AE1645AFC500683BF7 /* InfoPlist.strings */; };
 		42BCD8B31645AFC500683BF7 /* HoRNDIS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */; };
+		4C1547E11BF00D0D002073B5 /* CompositeDevice.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4C1547E01BF00D0D002073B5 /* CompositeDevice.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +20,7 @@
 		42BCD8B11645AFC500683BF7 /* HoRNDIS.h */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.c.h; path = HoRNDIS.h; sourceTree = SOURCE_ROOT; tabWidth = 8; };
 		42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.cpp.cpp; path = HoRNDIS.cpp; sourceTree = SOURCE_ROOT; tabWidth = 8; };
 		42BCD8B41645AFC500683BF7 /* HoRNDIS-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "HoRNDIS-Prefix.pch"; sourceTree = SOURCE_ROOT; };
+		4C1547E01BF00D0D002073B5 /* CompositeDevice.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = CompositeDevice.cpp; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,6 +73,7 @@
 			children = (
 				42BCD8B11645AFC500683BF7 /* HoRNDIS.h */,
 				42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */,
+				4C1547E01BF00D0D002073B5 /* CompositeDevice.cpp */,
 				42BCD8AC1645AFC500683BF7 /* Supporting Files */,
 			);
 			path = HoRNDIS;
@@ -171,6 +174,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				42BCD8B31645AFC500683BF7 /* HoRNDIS.cpp in Sources */,
+				4C1547E11BF00D0D002073B5 /* CompositeDevice.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -221,7 +225,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
-				CODE_SIGN_IDENTITY = "";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
@@ -263,7 +266,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD_32_64_BIT)";
-				CODE_SIGN_IDENTITY = "";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
@@ -288,7 +290,6 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_IDENTITY = "Developer ID Application: Joshua Wise (54GTJ2AU36)";
 				COPY_PHASE_STRIP = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu99;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -318,7 +319,6 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_IDENTITY = "Developer ID Application: Joshua Wise (54GTJ2AU36)";
 				COPY_PHASE_STRIP = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				GCC_C_LANGUAGE_STANDARD = gnu99;
@@ -336,7 +336,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD)";
-				CODE_SIGN_IDENTITY = "Developer ID Application: Joshua Wise (54GTJ2AU36)";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
@@ -356,7 +355,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ARCHS = "$(ARCHS_STANDARD)";
-				CODE_SIGN_IDENTITY = "Developer ID Application: Joshua Wise (54GTJ2AU36)";
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
