@@ -37,9 +37,9 @@
 #define DEBUGLEVEL V_NOTE
 #define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog(MYNAME ": %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
 
-#define super IOEthernetController
+#define super IOService
 
-OSDefineMetaClassAndStructors(MicroDriver, IOEthernetController);
+OSDefineMetaClassAndStructors(MicroDriver, IOService);
 OSDefineMetaClassAndStructors(MicroDriverUSBInterface, MicroDriver);
 
 bool MicroDriver::init(OSDictionary *properties) {
@@ -194,14 +194,6 @@ bailout0:
 }
 
 /***** Interface enable and disable logic *****/
-IOReturn MicroDriver::enable(IONetworkInterface *netif) {
-	return kIOReturnUnsupported;
-}
- 
-IOReturn MicroDriver::disable(IONetworkInterface * netif) {
-	return kIOReturnSuccess;
-}
-
 IOReturn MicroDriver::message(UInt32 type, IOService *provider, void *argument) {
 	IOReturn	ior;
 	

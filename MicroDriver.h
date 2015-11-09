@@ -61,7 +61,7 @@ extern "C"
 #define cpu_to_le32(x) (uint32_t)OSSwapHostToLittleInt32(x)
 #define le32_to_cpu(x) (uint32_t)OSSwapLittleToHostInt32(x)
 
-class MicroDriver : public IOEthernetController {
+class MicroDriver : public IOService {
 	OSDeclareDefaultStructors(MicroDriver);	// Constructor & Destructor stuff
 
 private:
@@ -82,10 +82,6 @@ public:
 	virtual void stop(IOService *provider);
 	virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
 
-	// IOEthernetController overrides
-	virtual IOReturn enable(IONetworkInterface *netif);
-	virtual IOReturn disable(IONetworkInterface *netif);
-	
 	virtual IOReturn getHardwareAddress(IOEthernetAddress * addrP);
 };
 
