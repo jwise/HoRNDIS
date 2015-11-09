@@ -43,8 +43,6 @@ OSDefineMetaClassAndStructors(MicroDriver, IOService);
 OSDefineMetaClassAndStructors(MicroDriverUSBInterface, MicroDriver);
 
 bool MicroDriver::init(OSDictionary *properties) {
-	int i;
-
 	LOG(V_NOTE, "MicroDriver not-really-tethering driver for Mac OS X, by Joshua Wise");
 	
 	if (super::init(properties) == false) {
@@ -122,8 +120,7 @@ void MicroDriver::stop(IOService *provider) {
 
 bool MicroDriver::openInterfaces() {
 	IOUSBFindInterfaceRequest req;
-	IOUSBFindEndpointRequest epReq;
-	int rc;
+	IOReturn rc;
 	
 	fCommInterface = fpInterface;
 	
@@ -193,10 +190,15 @@ bailout0:
 	return false;
 }
 
+IOService *MicroDriver::probe(IOService *provider, SInt32 *score) {
+	LOG(V_NOTE, "probe: came in with a score of %d\n", *score);
+	*score += 10000;
+	return this;
+}
+
+
 /***** Interface enable and disable logic *****/
 IOReturn MicroDriver::message(UInt32 type, IOService *provider, void *argument) {
-	IOReturn	ior;
-	
 	switch (type) {
 	case kIOMessageServiceIsTerminated:
 		LOG(V_NOTE, "kIOMessageServiceIsTerminated");
