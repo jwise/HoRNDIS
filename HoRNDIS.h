@@ -281,6 +281,7 @@ private:
 
 public:
 	IOUSBDevice *fpDevice;
+	IOUSBInterface *fpInterface;
 
 	// IOKit overrides
 	virtual bool init(OSDictionary *properties = 0);
