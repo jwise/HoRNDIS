@@ -16,25 +16,25 @@ ifeq (,$(wildcard $(XCODEBUILD_ANCIENT)))
 endif
 
 
-all: build/Release/HoRNDIS.kext build/Release-unsigned/HoRNDIS.kext build/HoRNDIS.pkg
+all: build/Release/MicroDriver.kext build/Release-unsigned/MicroDriver.kext build/MicroDriver.pkg
 
 # We now sign as part of the xcodebuild process.  Also, 'release' is now
 # signed, as opposed to 'signed', which used to be signed.
-build/Release/HoRNDIS.kext: HoRNDIS.cpp HoRNDIS.h HoRNDIS-Info.plist HoRNDIS.xcodeproj HoRNDIS.xcodeproj/project.pbxproj
-	$(XCODEBUILD_MODERN) -project HoRNDIS.xcodeproj
+build/Release/MicroDriver.kext: MicroDriver.cpp MicroDriver.h MicroDriver-Info.plist MicroDriver.xcodeproj MicroDriver.xcodeproj/project.pbxproj
+	$(XCODEBUILD_MODERN) -project MicroDriver.xcodeproj
 
-build/Release-unsigned/HoRNDIS.kext: HoRNDIS.cpp HoRNDIS.h HoRNDIS-Info.plist HoRNDIS.xcodeproj HoRNDIS.xcodeproj/project.pbxproj
-	$(XCODEBUILD_ANCIENT) -configuration Release-unsigned -project HoRNDIS.xcodeproj
+build/Release-unsigned/MicroDriver.kext: MicroDriver.cpp MicroDriver.h MicroDriver-Info.plist MicroDriver.xcodeproj MicroDriver.xcodeproj/project.pbxproj
+	$(XCODEBUILD_ANCIENT) -configuration Release-unsigned -project MicroDriver.xcodeproj
 
-build/root: build/Release/HoRNDIS.kext build/Release-unsigned/HoRNDIS.kext
+build/root: build/Release/MicroDriver.kext build/Release-unsigned/MicroDriver.kext
 	rm -rf build/root
 	mkdir -p build/root/System/Library/Extensions/
-	cp -R build/Release-unsigned/HoRNDIS.kext build/root/System/Library/Extensions/
+	cp -R build/Release-unsigned/MicroDriver.kext build/root/System/Library/Extensions/
 	mkdir -p build/root/Library/Extensions
-	cp -R build/Release/HoRNDIS.kext build/root/Library/Extensions/
+	cp -R build/Release/MicroDriver.kext build/root/Library/Extensions/
 
-build/HoRNDIS-kext.pkg: build/root
-	pkgbuild --identifier com.joshuawise.kexts.HoRNDIS --root $< $@
+build/MicroDriver-kext.pkg: build/root
+	pkgbuild --identifier com.joshuawise.kexts.MicroDriver --root $< $@
 
-build/HoRNDIS.pkg: build/HoRNDIS-kext.pkg package/Distribution.xml Package/intro-text.rtf
-	productbuild --distribution package/Distribution.xml --package-path build --resources package/resources $(if $(CODESIGN_INST),--sign $(CODESIGN_INST)) build/HoRNDIS.pkg
+build/MicroDriver.pkg: build/MicroDriver-kext.pkg package/Distribution.xml Package/intro-text.rtf
+	productbuild --distribution package/Distribution.xml --package-path build --resources package/resources $(if $(CODESIGN_INST),--sign $(CODESIGN_INST)) build/MicroDriver.pkg

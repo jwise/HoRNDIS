@@ -8,17 +8,17 @@
 
 /* Begin PBXBuildFile section */
 		42BCD8B01645AFC500683BF7 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = 42BCD8AE1645AFC500683BF7 /* InfoPlist.strings */; };
-		42BCD8B31645AFC500683BF7 /* HoRNDIS.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */; };
+		42BCD8B31645AFC500683BF7 /* MicroDriver.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 42BCD8B21645AFC500683BF7 /* MicroDriver.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		42BCD8A61645AFC500683BF7 /* HoRNDIS.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HoRNDIS.kext; sourceTree = BUILT_PRODUCTS_DIR; };
+		42BCD8A61645AFC500683BF7 /* MicroDriver.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MicroDriver.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		42BCD8AA1645AFC500683BF7 /* Kernel.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Kernel.framework; path = System/Library/Frameworks/Kernel.framework; sourceTree = SDKROOT; };
-		42BCD8AD1645AFC500683BF7 /* HoRNDIS-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "HoRNDIS-Info.plist"; sourceTree = SOURCE_ROOT; };
+		42BCD8AD1645AFC500683BF7 /* MicroDriver-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "MicroDriver-Info.plist"; sourceTree = SOURCE_ROOT; };
 		42BCD8AF1645AFC500683BF7 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
-		42BCD8B11645AFC500683BF7 /* HoRNDIS.h */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.c.h; path = HoRNDIS.h; sourceTree = SOURCE_ROOT; tabWidth = 8; };
-		42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.cpp.cpp; path = HoRNDIS.cpp; sourceTree = SOURCE_ROOT; tabWidth = 8; };
-		42BCD8B41645AFC500683BF7 /* HoRNDIS-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "HoRNDIS-Prefix.pch"; sourceTree = SOURCE_ROOT; };
+		42BCD8B11645AFC500683BF7 /* MicroDriver.h */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.c.h; path = MicroDriver.h; sourceTree = SOURCE_ROOT; tabWidth = 8; };
+		42BCD8B21645AFC500683BF7 /* MicroDriver.cpp */ = {isa = PBXFileReference; indentWidth = 8; lastKnownFileType = sourcecode.cpp.cpp; path = MicroDriver.cpp; sourceTree = SOURCE_ROOT; tabWidth = 8; };
+		42BCD8B41645AFC500683BF7 /* MicroDriver-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "MicroDriver-Prefix.pch"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -35,7 +35,7 @@
 		42BCD8991645AFC500683BF7 = {
 			isa = PBXGroup;
 			children = (
-				42BCD8AB1645AFC500683BF7 /* HoRNDIS */,
+				42BCD8AB1645AFC500683BF7 /* MicroDriver */,
 				42BCD8A81645AFC500683BF7 /* Frameworks */,
 				42BCD8A71645AFC500683BF7 /* Products */,
 			);
@@ -45,7 +45,7 @@
 		42BCD8A71645AFC500683BF7 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				42BCD8A61645AFC500683BF7 /* HoRNDIS.kext */,
+				42BCD8A61645AFC500683BF7 /* MicroDriver.kext */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -66,22 +66,22 @@
 			name = "Other Frameworks";
 			sourceTree = "<group>";
 		};
-		42BCD8AB1645AFC500683BF7 /* HoRNDIS */ = {
+		42BCD8AB1645AFC500683BF7 /* MicroDriver */ = {
 			isa = PBXGroup;
 			children = (
-				42BCD8B11645AFC500683BF7 /* HoRNDIS.h */,
-				42BCD8B21645AFC500683BF7 /* HoRNDIS.cpp */,
+				42BCD8B11645AFC500683BF7 /* MicroDriver.h */,
+				42BCD8B21645AFC500683BF7 /* MicroDriver.cpp */,
 				42BCD8AC1645AFC500683BF7 /* Supporting Files */,
 			);
-			path = HoRNDIS;
+			path = MicroDriver;
 			sourceTree = "<group>";
 		};
 		42BCD8AC1645AFC500683BF7 /* Supporting Files */ = {
 			isa = PBXGroup;
 			children = (
-				42BCD8AD1645AFC500683BF7 /* HoRNDIS-Info.plist */,
+				42BCD8AD1645AFC500683BF7 /* MicroDriver-Info.plist */,
 				42BCD8AE1645AFC500683BF7 /* InfoPlist.strings */,
-				42BCD8B41645AFC500683BF7 /* HoRNDIS-Prefix.pch */,
+				42BCD8B41645AFC500683BF7 /* MicroDriver-Prefix.pch */,
 			);
 			name = "Supporting Files";
 			sourceTree = "<group>";
@@ -99,9 +99,9 @@
 /* End PBXHeadersBuildPhase section */
 
 /* Begin PBXNativeTarget section */
-		42BCD8A51645AFC500683BF7 /* HoRNDIS */ = {
+		42BCD8A51645AFC500683BF7 /* MicroDriver */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 42BCD8B71645AFC500683BF7 /* Build configuration list for PBXNativeTarget "HoRNDIS" */;
+			buildConfigurationList = 42BCD8B71645AFC500683BF7 /* Build configuration list for PBXNativeTarget "MicroDriver" */;
 			buildPhases = (
 				42BCD8A01645AFC500683BF7 /* Sources */,
 				42BCD8A11645AFC500683BF7 /* Frameworks */,
@@ -113,9 +113,9 @@
 			);
 			dependencies = (
 			);
-			name = HoRNDIS;
-			productName = HoRNDIS;
-			productReference = 42BCD8A61645AFC500683BF7 /* HoRNDIS.kext */;
+			name = MicroDriver;
+			productName = MicroDriver;
+			productReference = 42BCD8A61645AFC500683BF7 /* MicroDriver.kext */;
 			productType = "com.apple.product-type.kernel-extension";
 		};
 /* End PBXNativeTarget section */
@@ -127,7 +127,7 @@
 				LastUpgradeCheck = 0450;
 				ORGANIZATIONNAME = "Joshua Wise";
 			};
-			buildConfigurationList = 42BCD89E1645AFC500683BF7 /* Build configuration list for PBXProject "HoRNDIS" */;
+			buildConfigurationList = 42BCD89E1645AFC500683BF7 /* Build configuration list for PBXProject "MicroDriver" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = English;
 			hasScannedForEncodings = 0;
@@ -139,7 +139,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				42BCD8A51645AFC500683BF7 /* HoRNDIS */,
+				42BCD8A51645AFC500683BF7 /* MicroDriver */,
 			);
 		};
 /* End PBXProject section */
@@ -170,7 +170,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				42BCD8B31645AFC500683BF7 /* HoRNDIS.cpp in Sources */,
+				42BCD8B31645AFC500683BF7 /* MicroDriver.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -225,11 +225,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "HoRNDIS-Prefix.pch";
+				GCC_PREFIX_HEADER = "MicroDriver-Prefix.pch";
 				GCC_VERSION = com.apple.compilers.llvmgcc42;
-				INFOPLIST_FILE = "HoRNDIS-Info.plist";
+				INFOPLIST_FILE = "MicroDriver-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.6;
-				MODULE_NAME = com.joshuawise.HoRNDIS;
+				MODULE_NAME = com.joshuawise.MicroDriver;
 				MODULE_VERSION = 6;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx10.6;
@@ -267,11 +267,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "HoRNDIS-Prefix.pch";
+				GCC_PREFIX_HEADER = "MicroDriver-Prefix.pch";
 				GCC_VERSION = com.apple.compilers.llvmgcc42;
-				INFOPLIST_FILE = "HoRNDIS-Info.plist";
+				INFOPLIST_FILE = "MicroDriver-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.6;
-				MODULE_NAME = com.joshuawise.HoRNDIS;
+				MODULE_NAME = com.joshuawise.MicroDriver;
 				MODULE_VERSION = 6;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx10.6;
@@ -340,11 +340,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "HoRNDIS-Prefix.pch";
+				GCC_PREFIX_HEADER = "MicroDriver-Prefix.pch";
 				GCC_VERSION = "";
-				INFOPLIST_FILE = "HoRNDIS-Info.plist";
+				INFOPLIST_FILE = "MicroDriver-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
-				MODULE_NAME = com.joshuawise.HoRNDIS;
+				MODULE_NAME = com.joshuawise.MicroDriver;
 				MODULE_VERSION = 6;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx10.6;
@@ -360,11 +360,11 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1.0.0d1;
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "HoRNDIS-Prefix.pch";
+				GCC_PREFIX_HEADER = "MicroDriver-Prefix.pch";
 				GCC_VERSION = "";
-				INFOPLIST_FILE = "HoRNDIS-Info.plist";
+				INFOPLIST_FILE = "MicroDriver-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.9;
-				MODULE_NAME = com.joshuawise.HoRNDIS;
+				MODULE_NAME = com.joshuawise.MicroDriver;
 				MODULE_VERSION = 6;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx10.6;
@@ -375,7 +375,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		42BCD89E1645AFC500683BF7 /* Build configuration list for PBXProject "HoRNDIS" */ = {
+		42BCD89E1645AFC500683BF7 /* Build configuration list for PBXProject "MicroDriver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				42BCD8B51645AFC500683BF7 /* Debug */,
@@ -386,7 +386,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		42BCD8B71645AFC500683BF7 /* Build configuration list for PBXNativeTarget "HoRNDIS" */ = {
+		42BCD8B71645AFC500683BF7 /* Build configuration list for PBXNativeTarget "MicroDriver" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				42BCD8B81645AFC500683BF7 /* Debug */,

@@ -1,6 +1,6 @@
-/* HoRNDIS.h
+/* MicroDriver.h
  * Declaration of IOKit-derived classes
- * HoRNDIS, a RNDIS driver for Mac OS X
+ * MicroDriver, a not-a-driver for Mac OS X
  *
  *   Copyright (c) 2012 Joshua Wise.
  *
@@ -232,53 +232,17 @@ typedef struct {
 	IOUSBCompletion comp;
 } pipebuf_t;
 
-class HoRNDIS : public IOEthernetController {
-	OSDeclareDefaultStructors(HoRNDIS);	// Constructor & Destructor stuff
+class MicroDriver : public IOEthernetController {
+	OSDeclareDefaultStructors(MicroDriver);	// Constructor & Destructor stuff
 
 private:
 	bool fTerminate; // being terminated now (i.e., device being unplugged)
 		
-	IOEthernetInterface *fNetworkInterface;
-	IONetworkStats *fpNetStats;
-	
-	OSDictionary *fMediumDict;
-
-	bool fNetifEnabled;
-	bool fDataDead;
-	 
 	IOUSBInterface *fCommInterface;
 	IOUSBInterface *fDataInterface;
 	
-	IOUSBPipe *fInPipe;
-	IOUSBPipe *fOutPipe;
-	
-	IOLock *xid_lock;
-	uint32_t xid;
-	uint32_t mtu;
-	
-	IOLock *outbuf_lock;
-	pipebuf_t outbufs[N_OUT_BUFS];
-	static void dataWriteComplete(void *obj, void *param, IOReturn ior, UInt32 remaining);
-
-	pipebuf_t inbuf;
-	static void dataReadComplete(void *obj, void *param, IOReturn ior, UInt32 remaining);
-
-	bool rndisInit();
-	int rndisCommand(struct rndis_msg_hdr *buf, int buflen);
-	int rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, int *reply_len);
-	bool rndisSetPacketFilter(uint32_t filter);
-	
-	bool createMediumTables(void);
-	bool allocateResources(void);
-	void releaseResources(void);
 	bool openInterfaces();
-	bool createNetworkInterface(void);
-	UInt32 outputPacket(mbuf_t pkt, void *param);
-	IOReturn clearPipeStall(IOUSBPipe *thePipe);
-	void receivePacket(void *packet, UInt32 size);
 	
-	IOWorkLoop *workloop;
-
 public:
 	IOUSBDevice *fpDevice;
 	IOUSBInterface *fpInterface;
@@ -287,34 +251,19 @@ public:
 	virtual bool init(OSDictionary *properties = 0);
 	virtual bool start(IOService *provider);
 	virtual void stop(IOService *provider);
-	virtual bool createWorkLoop();
-	virtual IOWorkLoop *getWorkLoop() const;
 	virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
 
 	// IOEthernetController overrides
 	virtual IOReturn enable(IONetworkInterface *netif);
 	virtual IOReturn disable(IONetworkInterface *netif);
-	virtual IOReturn getPacketFilters(const OSSymbol *group, UInt32 *filters ) const;
-	virtual IOReturn getMaxPacketSize(UInt32 * maxSize) const;
-	virtual IOReturn selectMedium(const IONetworkMedium *medium);
-	virtual IOReturn getHardwareAddress(IOEthernetAddress *addr);
-	virtual IOReturn setPromiscuousMode(bool active);
-	virtual IOOutputQueue *createOutputQueue(void);
-	virtual bool configureInterface(IONetworkInterface *netif);
-	virtual IONetworkInterface *createInterface();
+	
+	virtual IOReturn getHardwareAddress(IOEthernetAddress * addrP);
 };
 
 /* If there are other ways to get access to a device, we probably want them here. */
-class HoRNDISUSBInterface : public HoRNDIS {
-	OSDeclareDefaultStructors(HoRNDISUSBInterface);
+class MicroDriverUSBInterface : public MicroDriver {
+	OSDeclareDefaultStructors(MicroDriverUSBInterface);
 public:
 	virtual bool start(IOService *provider);
 };
 
-class HoRNDISInterface : public IOEthernetInterface {
-	OSDeclareDefaultStructors(HoRNDISInterface);
-	int maxmtu;
-public:
-	virtual bool init(IONetworkController * controller, int mtu);
-	virtual bool setMaxTransferUnit(UInt32 mtu);
-};

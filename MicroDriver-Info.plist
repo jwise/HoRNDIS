@@ -11,7 +11,7 @@
 	<key>CFBundleIconFile</key>
 	<string></string>
 	<key>CFBundleIdentifier</key>
-	<string>com.joshuawise.kexts.HoRNDIS</string>
+	<string>com.joshuawise.kexts.MicroDriver</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -26,12 +26,12 @@
 	<string>6</string>
 	<key>IOKitPersonalities</key>
 	<dict>
-		<key>HoRNDISComposite_SGS2</key>
+		<key>MicroDriverComposite_SGS2</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
+			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBInterface</string>
+			<string>MicroDriverUSBInterface</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBInterface</string>
 			<key>bInterfaceClass</key>
@@ -41,10 +41,10 @@
 			<key>bInterfaceSubClass</key>
 			<integer>2</integer>
 		</dict>
-		<key>HoRNDISDevice3</key>
+		<key>MicroDriverDevice3</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
+			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
 			<string>AppleUSBComposite</string>
 			<key>IOProviderClass</key>
@@ -56,10 +56,10 @@
 			<key>bDeviceProtocol</key>
 			<integer>0</integer>
 		</dict>
-		<key>HoRNDISDevice2</key>
+		<key>MicroDriverDevice2</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
+			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
 			<string>AppleUSBComposite</string>
 			<key>IOProviderClass</key>
@@ -71,10 +71,10 @@
 			<key>bDeviceProtocol</key>
 			<integer>1</integer>
 		</dict>
-		<key>HoRNDISDevice</key>
+		<key>MicroDriverDevice</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
+			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
 			<string>AppleUSBComposite</string>
 			<key>IOProviderClass</key>
@@ -86,12 +86,12 @@
 			<key>bDeviceProtocol</key>
 			<integer>0</integer>
 		</dict>
-		<key>HoRNDISComposite</key>
+		<key>MicroDriverComposite</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
+			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBInterface</string>
+			<string>MicroDriverUSBInterface</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBInterface</string>
 			<key>bInterfaceClass</key>
