@@ -34,13 +34,14 @@
 #define V_NOTE 2
 #define V_ERROR 3
 
-#define DEBUGLEVEL V_NOTE
+#define DEBUGLEVEL V_DEBUG
 #define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog(MYNAME ": %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
 
 #define super IOService
 
 OSDefineMetaClassAndStructors(MicroDriver, IOService);
 OSDefineMetaClassAndStructors(MicroDriverUSBInterface, MicroDriver);
+OSDefineMetaClassAndStructors(MicroDriverUSBDevice, MicroDriver);
 
 bool MicroDriver::init(OSDictionary *properties) {
 	LOG(V_NOTE, "MicroDriver not-really-tethering driver for Mac OS X, by Joshua Wise");
@@ -75,6 +76,55 @@ bool MicroDriverUSBInterface::start(IOService *provider) {
 	fpInterface = intf;
 	
 	return MicroDriver::start(provider);
+}
+
+bool MicroDriverUSBDevice::start(IOService *provider) {
+	IOUSBDevice *dev;
+	IOUSBFindInterfaceRequest req;
+	
+	LOG(V_DEBUG, "start, as IOUSBDevice");
+
+	dev = OSDynamicCast(IOUSBDevice, provider);
+	if (!dev) {
+		LOG(V_ERROR, "cast to IOUSBDevice failed?");
+		return false;
+	}
+	
+	fpDevice = dev;
+	
+	const IOUSBConfigurationDescriptor *desc = dev->GetFullConfigurationDescriptor(0);
+	if (!desc) {
+		LOG(V_ERROR, "GetFullConfigurationDescriptor failed?");
+		return false;
+	}
+	
+	if (!dev->open(this)) {
+		LOG(V_ERROR, "opening USB device failed?");
+		return false;
+	}
+	
+	LOG(V_NOTE, "IOUSBDevice: okay, here I go setting configuration!");
+	/* XXX: We should check that configuration descriptor to make sure we can handle it. */
+	if (dev->SetConfiguration(this, desc->bConfigurationValue, true) != kIOReturnSuccess) {
+		LOG(V_ERROR, "SetConfiguration failed?");
+		dev->close(this);
+		return false;
+	}
+	LOG(V_NOTE, "IOUSBDevice: okay, here I'm back from setting configuration!");
+	
+	IOUSBInterface *ifc = NULL;
+	LOG(V_ERROR, "IOUSBDevice: before I fail, here are all the interfaces that I saw, in case you care ...");
+	while ((ifc = fpDevice->FindNextInterface(ifc, &req))) {
+		LOG(V_ERROR, "IOUSBDevice:   class 0x%02x, subclass 0x%02x, protocol 0x%02x", ifc->GetInterfaceClass(), ifc->GetInterfaceSubClass(), ifc->GetInterfaceProtocol());
+	}
+	
+	dev->close(this);
+	
+	return false;
+	/*
+	fpInterface = intf;
+	
+	return MicroDriver::start(provider);*/
 }
 
 bool MicroDriver::start(IOService *provider) {

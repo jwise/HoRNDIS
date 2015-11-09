@@ -46,7 +46,7 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
-			<string>AppleUSBComposite</string>
+			<string>MicroDriverUSBDevice</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBDevice</string>
 			<key>bDeviceClass</key>
@@ -61,7 +61,7 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
-			<string>AppleUSBComposite</string>
+			<string>MicroDriverUSBDevice</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBDevice</string>
 			<key>bDeviceClass</key>
@@ -76,7 +76,7 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.MicroDriver</string>
 			<key>IOClass</key>
-			<string>AppleUSBComposite</string>
+			<string>MicroDriverUSBDevice</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBDevice</string>
 			<key>bDeviceClass</key>

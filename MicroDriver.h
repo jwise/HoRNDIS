@@ -93,3 +93,9 @@ public:
 	virtual bool start(IOService *provider);
 };
 
+class MicroDriverUSBDevice : public MicroDriver {
+	OSDeclareDefaultStructors(MicroDriverUSBDevice);
+public:
+	virtual bool start(IOService *provider);
+};
+
