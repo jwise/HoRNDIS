@@ -58,6 +58,15 @@ extern "C"
 	#include <sys/mbuf.h>
 }
 
+#define MYNAME "HoRNDIS"
+#define V_PTR 0
+#define V_DEBUG 1
+#define V_NOTE 2
+#define V_ERROR 3
+
+#define DEBUGLEVEL V_NOTE
+#define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog(MYNAME ": %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
+
 #define cpu_to_le32(x) (uint32_t)OSSwapHostToLittleInt32(x)
 #define le32_to_cpu(x) (uint32_t)OSSwapLittleToHostInt32(x)
 
@@ -236,8 +245,6 @@ class HoRNDIS : public IOEthernetController {
 	OSDeclareDefaultStructors(HoRNDIS);	// Constructor & Destructor stuff
 
 private:
-	bool fTerminate; // being terminated now (i.e., device being unplugged)
-		
 	IOEthernetInterface *fNetworkInterface;
 	IONetworkStats *fpNetStats;
 	
@@ -271,7 +278,7 @@ private:
 	bool createMediumTables(void);
 	bool allocateResources(void);
 	void releaseResources(void);
-	bool openInterfaces();
+	bool openEndpoints();
 	bool createNetworkInterface(void);
 	UInt32 outputPacket(mbuf_t pkt, void *param);
 	IOReturn clearPipeStall(IOUSBPipe *thePipe);
@@ -280,12 +287,14 @@ private:
 	IOWorkLoop *workloop;
 
 public:
-	IOUSBDevice *fpDevice;
-
 	// IOKit overrides
 	virtual bool init(OSDictionary *properties = 0);
-	virtual bool start(IOService *provider);
+	virtual void free(void);
+	
+	// Called once matched and chosen as best provider
+	virtual bool start(IOUSBDevice *device, IOUSBInterface *control, IOUSBInterface *data);
 	virtual void stop(IOService *provider);
+	
 	virtual bool createWorkLoop();
 	virtual IOWorkLoop *getWorkLoop() const;
 	virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
@@ -304,16 +313,12 @@ public:
 };
 
 /* If there are other ways to get access to a device, we probably want them here. */
-class HoRNDISUSBInterface : public HoRNDIS {
-	OSDeclareDefaultStructors(HoRNDISUSBInterface);
+class HoRNDISUSBComposite : public HoRNDIS {
+	OSDeclareDefaultStructors(HoRNDISUSBComposite);
 public:
 	virtual bool start(IOService *provider);
-};
-
-class HoRNDISInterface : public IOEthernetInterface {
-	OSDeclareDefaultStructors(HoRNDISInterface);
-	int maxmtu;
-public:
-	virtual bool init(IONetworkController * controller, int mtu);
-	virtual bool setMaxTransferUnit(UInt32 mtu);
+	virtual bool attach(IOService * provider);
+	virtual IOService *probe(IOService *provider, SInt32 *score);
+	virtual void detach(IOService * provider);
+	virtual void stop(IOService *provider);
 };
