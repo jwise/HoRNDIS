@@ -121,6 +121,9 @@ void MicroDriver::stop(IOService *provider) {
 bool MicroDriver::openInterfaces() {
 	IOUSBFindInterfaceRequest req;
 	IOReturn rc;
+	OSDictionary *dict;
+	OSNumber *num;
+	IOService *datasvc;
 	
 	fCommInterface = fpInterface;
 	
@@ -131,14 +134,38 @@ bool MicroDriver::openInterfaces() {
 		LOG(V_ERROR, "could not open RNDIS control interface?");
 		goto bailout1;
 	}
-
-	/* open up the RNDIS data interface */
-	req.bInterfaceClass    = 0x0A;
-	req.bInterfaceSubClass = 0x00;
-	req.bInterfaceProtocol = 0x00;
-	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
-	fDataInterface = fpDevice->FindNextInterface(fCommInterface, &req);
+	/* Go looking for the data interface.  */
+	dict = IOService::serviceMatching("IOUSBInterface");
+	if (!dict) {
+		LOG(V_ERROR, "could not create matching dict?");
+		goto bailout2;
+	}
+	
+	num = OSNumber::withNumber((uint64_t)10, 32); /* XXX error check */
+	dict->setObject("bInterfaceClass", num);
+	num->release();
+	
+	num = OSNumber::withNumber((uint64_t)0, 32); /* XXX error check */
+	dict->setObject("bInterfaceSubClass", num);
+	num->release();
+	
+	num = OSNumber::withNumber((uint64_t)0, 32); /* XXX error check */
+	dict->setObject("bInterfaceProtocol", num);
+	num->release();
+	
+	LOG(V_NOTE, "OK, here we go waiting for a matching service");
+	datasvc = IOService::waitForMatchingService(dict, 1000000000 /* i.e., 1 sec */);
+	LOG(V_NOTE, "and we are back, having matched exactly %p", datasvc);
+	
+	dict->release();
+	
+	if (!datasvc) {
+		LOG(V_ERROR, "waitForMatchingService matched nothing?");
+		goto bailout2;
+	}
+	
+	fDataInterface = OSDynamicCast(IOUSBInterface, datasvc);
 	if (!fDataInterface) {
 		LOG(V_ERROR, "RNDIS data interface not available?");
 		goto bailout2;
