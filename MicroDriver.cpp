@@ -28,6 +28,12 @@
 
 #include "MicroDriver.h"
 
+#include <IOKit/IOKitKeys.h>
+#include <IOKit/usb/USBSpec.h>
+
+/* This is only available in the userspace IOKit.framework's usb/IOUSBLib.h, for some reason.  So instead: */
+#define kIOUSBInterfaceClassName  "IOUSBInterface"
+
 #define MYNAME "MicroDriver"
 #define V_PTR 0
 #define V_DEBUG 1
@@ -122,6 +128,7 @@ bool MicroDriver::openInterfaces() {
 	IOUSBFindInterfaceRequest req;
 	IOReturn rc;
 	OSDictionary *dict;
+	OSDictionary *propertyDict;
 	OSNumber *num;
 	IOService *datasvc;
 	
@@ -136,25 +143,30 @@ bool MicroDriver::openInterfaces() {
 	}
 	
 	/* Go looking for the data interface.  */
-	dict = IOService::serviceMatching("IOUSBInterface");
+	dict = IOService::serviceMatching(kIOUSBInterfaceClassName);
 	if (!dict) {
 		LOG(V_ERROR, "could not create matching dict?");
 		goto bailout2;
 	}
 	
+	propertyDict = OSDictionary::withCapacity(3);
+	
 	num = OSNumber::withNumber((uint64_t)10, 32); /* XXX error check */
-	dict->setObject("bInterfaceClass", num);
+	propertyDict->setObject(kUSBInterfaceClass, num);
 	num->release();
 	
 	num = OSNumber::withNumber((uint64_t)0, 32); /* XXX error check */
-	dict->setObject("bInterfaceSubClass", num);
+	propertyDict->setObject(kUSBInterfaceSubClass, num);
 	num->release();
 	
 	num = OSNumber::withNumber((uint64_t)0, 32); /* XXX error check */
-	dict->setObject("bInterfaceProtocol", num);
+	propertyDict->setObject(kUSBInterfaceProtocol, num);
 	num->release();
 	
-	LOG(V_NOTE, "OK, here we go waiting for a matching service");
+	dict->setObject(kIOPropertyMatchKey, propertyDict);
+	propertyDict->release();
+	
+	LOG(V_NOTE, "OK, here we go waiting for a matching service with the new propertyDict");
 	datasvc = IOService::waitForMatchingService(dict, 1000000000 /* i.e., 1 sec */);
 	LOG(V_NOTE, "and we are back, having matched exactly %p", datasvc);
 	
