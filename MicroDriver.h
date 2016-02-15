@@ -72,6 +72,9 @@ private:
 	
 	bool openInterfaces();
 	
+	int ctrlclass, ctrlsubclass, ctrlprotocol;
+	IOService *matchOne(uint32_t cl, uint32_t subcl, uint32_t proto);
+	
 public:
 	IOUSBDevice *fpDevice;
 	IOUSBInterface *fpInterface;
@@ -87,8 +90,8 @@ public:
 };
 
 /* If there are other ways to get access to a device, we probably want them here. */
-class MicroDriverUSBInterface : public MicroDriver {
-	OSDeclareDefaultStructors(MicroDriverUSBInterface);
+class MicroDriverUSBDevice : public MicroDriver {
+	OSDeclareDefaultStructors(MicroDriverUSBDevice);
 public:
 	virtual bool start(IOService *provider);
 };

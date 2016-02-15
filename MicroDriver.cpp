@@ -46,7 +46,7 @@
 #define super IOService
 
 OSDefineMetaClassAndStructors(MicroDriver, IOService);
-OSDefineMetaClassAndStructors(MicroDriverUSBInterface, MicroDriver);
+OSDefineMetaClassAndStructors(MicroDriverUSBDevice, MicroDriver);
 
 bool MicroDriver::init(OSDictionary *properties) {
 	LOG(V_NOTE, "MicroDriver not-really-tethering driver for Mac OS X, by Joshua Wise");
@@ -66,19 +66,18 @@ bool MicroDriver::init(OSDictionary *properties) {
 
 /* IOKit class wrappers */
 
-bool MicroDriverUSBInterface::start(IOService *provider) {
-	IOUSBInterface *intf;
+bool MicroDriverUSBDevice::start(IOService *provider) {
+	IOUSBDevice *dev;
 	
-	LOG(V_DEBUG, "start, as IOUSBInterface");
+	LOG(V_DEBUG, "start, as IOUSBDevice");
 
-	intf = OSDynamicCast(IOUSBInterface, provider);
-	if (!intf) {
-		LOG(V_ERROR, "cast to IOUSBInterface failed?");
+	dev = OSDynamicCast(IOUSBDevice, provider);
+	if (!dev) {
+		LOG(V_ERROR, "cast to IOUSBDevice failed?");
 		return false;
 	}
 	
-	fpDevice = intf->GetDevice();
-	fpInterface = intf;
+	fpDevice = dev;
 	
 	return MicroDriver::start(provider);
 }
@@ -93,7 +92,14 @@ bool MicroDriver::start(IOService *provider) {
 		stop(provider);
 		return false;
 	}
-
+	
+	fpDevice->retain();
+	if (!fpDevice->open(this)) {
+		LOG(V_ERROR, "could not open the device at all?");
+		goto bailout0;
+	}
+	fpDevice->release();
+	
 	if (!openInterfaces())
 		goto bailout;
 	
@@ -102,6 +108,7 @@ bool MicroDriver::start(IOService *provider) {
 bailout:
 	fpDevice->close(this);
 	fpDevice = NULL;
+bailout0:
 	stop(provider);
 	return false;
 }
@@ -124,42 +131,29 @@ void MicroDriver::stop(IOService *provider) {
 	super::stop(provider);
 }
 
-bool MicroDriver::openInterfaces() {
-	IOUSBFindInterfaceRequest req;
-	IOReturn rc;
+IOService *MicroDriver::matchOne(uint32_t cl, uint32_t subcl, uint32_t proto) {
 	OSDictionary *dict;
 	OSDictionary *propertyDict;
 	OSNumber *num;
-	IOService *datasvc;
+	IOService *svc;
 	
-	fCommInterface = fpInterface;
-	
-	fCommInterface->retain();
-	rc = fCommInterface->open(this);
-	fCommInterface->release();
-	if (!rc) {
-		LOG(V_ERROR, "could not open RNDIS control interface?");
-		goto bailout1;
-	}
-	
-	/* Go looking for the data interface.  */
 	dict = IOService::serviceMatching(kIOUSBInterfaceClassName);
 	if (!dict) {
 		LOG(V_ERROR, "could not create matching dict?");
-		goto bailout2;
+		return NULL;
 	}
 	
 	propertyDict = OSDictionary::withCapacity(3);
 	
-	num = OSNumber::withNumber((uint64_t)10, 32); /* XXX error check */
+	num = OSNumber::withNumber((uint64_t)cl, 32); /* XXX error check */
 	propertyDict->setObject(kUSBInterfaceClass, num);
 	num->release();
 	
-	num = OSNumber::withNumber((uint64_t)0, 32); /* XXX error check */
+	num = OSNumber::withNumber((uint64_t)subcl, 32); /* XXX error check */
 	propertyDict->setObject(kUSBInterfaceSubClass, num);
 	num->release();
 	
-	num = OSNumber::withNumber((uint64_t)0, 32); /* XXX error check */
+	num = OSNumber::withNumber((uint64_t)proto, 32); /* XXX error check */
 	propertyDict->setObject(kUSBInterfaceProtocol, num);
 	num->release();
 	
@@ -167,10 +161,46 @@ bool MicroDriver::openInterfaces() {
 	propertyDict->release();
 	
 	LOG(V_NOTE, "OK, here we go waiting for a matching service with the new propertyDict");
-	datasvc = IOService::waitForMatchingService(dict, 1000000000 /* i.e., 1 sec */);
-	LOG(V_NOTE, "and we are back, having matched exactly %p", datasvc);
+	svc = IOService::waitForMatchingService(dict, 1000000000 /* i.e., 1 sec */);
+	LOG(V_NOTE, "and we are back, having matched exactly %p", svc);
 	
 	dict->release();
+	
+	return svc;
+}
+
+bool MicroDriver::openInterfaces() {
+	IOUSBFindInterfaceRequest req;
+	IOReturn rc;
+	IOService *datasvc;
+	
+	/* Set up the device's configuration. */
+	if (fpDevice->SetConfiguration(this, 0 /* config #0 */, true /* start matching */) != kIOReturnSuccess) {
+		LOG(V_ERROR, "failed to set configuration 0?");
+		goto bailout0;
+	}
+	
+	/* Go looking for the comm interface. */
+	datasvc = matchOne(ctrlclass, ctrlsubclass, ctrlprotocol);
+	if (!datasvc) {
+		LOG(V_ERROR, "control: waitForMatchingService(%d, %d, %d) matched nothing?", ctrlclass, ctrlsubclass, ctrlprotocol);
+		goto bailout0;
+	}
+
+	fCommInterface = OSDynamicCast(IOUSBInterface, datasvc);
+	if (!fCommInterface) {
+		LOG(V_ERROR, "RNDIS control interface not available?");
+		goto bailout0;
+	}
+
+	rc = fCommInterface->open(this);
+	if (!rc) {
+		LOG(V_ERROR, "could not open RNDIS control interface?");
+		goto bailout1;
+	}
+	
+	/* Go looking for the data interface.  */
+	datasvc = matchOne(10, 0, 0);
 	
 	if (!datasvc) {
 		LOG(V_ERROR, "waitForMatchingService matched nothing?");
@@ -224,13 +254,56 @@ bailout0:
 	while ((ifc = fpDevice->FindNextInterface(ifc, &req))) {
 		LOG(V_ERROR, "openInterfaces:   class 0x%02x, subclass 0x%02x, protocol 0x%02x", ifc->GetInterfaceClass(), ifc->GetInterfaceSubClass(), ifc->GetInterfaceProtocol());
 	}
-	LOG(V_ERROR, "openInterfaces: I woke up having been called to look at interface #%d, which has class 0x%02x, subclass 0x%02x, protocol 0x%02x", fpInterface->GetInterfaceNumber(), fpInterface->GetInterfaceClass(), fpInterface->GetInterfaceSubClass(), fpInterface->GetInterfaceProtocol());
+	/* LOG(V_ERROR, "openInterfaces: I woke up having been called to look at interface #%d, which has class 0x%02x, subclass 0x%02x, protocol 0x%02x", fpInterface->GetInterfaceNumber(), fpInterface->GetInterfaceClass(), fpInterface->GetInterfaceSubClass(), fpInterface->GetInterfaceProtocol()); */
 	
 	return false;
 }
 
 IOService *MicroDriver::probe(IOService *provider, SInt32 *score) {
 	LOG(V_NOTE, "probe: came in with a score of %d\n", *score);
+	IOUSBDevice *dev = OSDynamicCast(IOUSBDevice, provider); /* XXX: error check */
+	
+	/* Do we even have one of the things that we can match on?  If not, return NULL.  Either 2/255/2, or 224/3/1.  */
+	const IOUSBConfigurationDescriptor *cd;
+	
+	cd = dev->GetFullConfigurationDescriptor(0);
+	if (!cd) {
+		LOG(V_ERROR, "probe: failed to get a configuration descriptor for configuration 0?");
+		return NULL;
+	}
+	
+	/* And look for one of the options. */
+	IOUSBInterfaceDescriptor *descout;
+	IOUSBFindInterfaceRequest req;
+	bool found = false;
+	
+	req.bInterfaceClass = 2;
+	req.bInterfaceSubClass = 2;
+	req.bInterfaceProtocol = 255;
+	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
+		LOG(V_NOTE, "probe: looks like we're good (2/2/255)");
+		ctrlclass = 2;
+		ctrlsubclass = 2;
+		ctrlprotocol = 255;
+		found = true;
+	}
+
+	req.bInterfaceClass = 224;
+	req.bInterfaceSubClass = 3;
+	req.bInterfaceProtocol = 1;
+	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
+		ctrlclass = 224;
+		ctrlsubclass = 3;
+		ctrlprotocol = 1;
+		LOG(V_NOTE, "probe: looks like we're good (224/3/1)");
+		found = true;
+	}
+	
+	if (!found) {
+		LOG(V_NOTE, "probe: this composite device is not for us");
+		return NULL;
+	}
+	
 	*score += 10000;
 	return this;
 }
