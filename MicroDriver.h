@@ -72,7 +72,7 @@ private:
 	
 	bool openInterfaces();
 	
-	int ctrlclass, ctrlsubclass, ctrlprotocol;
+	int ctrlclass, ctrlsubclass, ctrlprotocol, ctrlconfig;
 	IOService *matchOne(uint32_t cl, uint32_t subcl, uint32_t proto);
 	
 public:

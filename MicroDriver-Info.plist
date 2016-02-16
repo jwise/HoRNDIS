@@ -71,6 +71,21 @@
 			<key>bDeviceProtocol</key>
 			<integer>0</integer>
 		</dict>
+		<key>MicroDriverDeviceComposite</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.joshuawise.kexts.MicroDriver</string>
+			<key>IOClass</key>
+			<string>MicroDriverUSBDevice</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBDevice</string>
+			<key>bDeviceClass</key>
+			<integer>0</integer>
+			<key>bDeviceSubClass</key>
+			<integer>0</integer>
+			<key>bDeviceProtocol</key>
+			<integer>0</integer>
+		</dict>
 	</dict>
 	<key>OSBundleLibraries</key>
 	<dict>

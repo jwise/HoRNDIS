@@ -161,7 +161,7 @@ IOService *MicroDriver::matchOne(uint32_t cl, uint32_t subcl, uint32_t proto) {
 	propertyDict->release();
 	
 	LOG(V_NOTE, "OK, here we go waiting for a matching service with the new propertyDict");
-	svc = IOService::waitForMatchingService(dict, 1000000000 /* i.e., 1 sec */);
+	svc = IOService::waitForMatchingService(dict, 1 * 1000000000 /* i.e., 1 sec */);
 	LOG(V_NOTE, "and we are back, having matched exactly %p", svc);
 	
 	dict->release();
@@ -175,8 +175,8 @@ bool MicroDriver::openInterfaces() {
 	IOService *datasvc;
 	
 	/* Set up the device's configuration. */
-	if (fpDevice->SetConfiguration(this, 0 /* config #0 */, true /* start matching */) != kIOReturnSuccess) {
-		LOG(V_ERROR, "failed to set configuration 0?");
+	if (fpDevice->SetConfiguration(this, ctrlconfig /* config #0 */, true /* start matching */) != kIOReturnSuccess) {
+		LOG(V_ERROR, "failed to set configuration %d?", ctrlconfig);
 		goto bailout0;
 	}
 	
@@ -277,6 +277,8 @@ IOService *MicroDriver::probe(IOService *provider, SInt32 *score) {
 	IOUSBFindInterfaceRequest req;
 	bool found = false;
 	
+	ctrlconfig = cd->bConfigurationValue;
+	
 	req.bInterfaceClass = 2;
 	req.bInterfaceSubClass = 2;
 	req.bInterfaceProtocol = 255;
@@ -289,13 +291,13 @@ IOService *MicroDriver::probe(IOService *provider, SInt32 *score) {
 	}
 
 	req.bInterfaceClass = 224;
-	req.bInterfaceSubClass = 3;
-	req.bInterfaceProtocol = 1;
+	req.bInterfaceSubClass = 1;
+	req.bInterfaceProtocol = 3;
 	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
 		ctrlclass = 224;
-		ctrlsubclass = 3;
-		ctrlprotocol = 1;
-		LOG(V_NOTE, "probe: looks like we're good (224/3/1)");
+		ctrlsubclass = 1;
+		ctrlprotocol = 3;
+		LOG(V_NOTE, "probe: looks like we're good (224/1/3)");
 		found = true;
 	}
 	
