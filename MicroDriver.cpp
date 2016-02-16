@@ -167,7 +167,7 @@ bool MicroDriver::openInterfaces() {
 	propertyDict->release();
 	
 	LOG(V_NOTE, "OK, here we go waiting for a matching service with the new propertyDict");
-	datasvc = IOService::waitForMatchingService(dict, 1000000000 /* i.e., 1 sec */);
+	datasvc = IOService::waitForMatchingService(dict, 30 * 1000000000LL /* i.e., 1 sec */);
 	LOG(V_NOTE, "and we are back, having matched exactly %p", datasvc);
 	
 	dict->release();
