@@ -96,9 +96,8 @@ bool MicroDriver::start(IOService *provider) {
 	fpDevice->retain();
 	if (!fpDevice->open(this)) {
 		LOG(V_ERROR, "could not open the device at all?");
-		goto bailout0;
+		goto bailout;
 	}
-	fpDevice->release();
 	
 	if (!openInterfaces())
 		goto bailout;
@@ -106,9 +105,6 @@ bool MicroDriver::start(IOService *provider) {
 	LOG(V_ERROR, "Would have been successful, had we gotten this far.");
 
 bailout:
-	fpDevice->close(this);
-	fpDevice = NULL;
-bailout0:
 	stop(provider);
 	return false;
 }
@@ -127,9 +123,31 @@ void MicroDriver::stop(IOService *provider) {
 		fDataInterface->release();
 		fDataInterface = NULL;	
 	}
+	
+	if (fpDevice) {
+		fpDevice->close(this);
+		fpDevice->release();
+		fpDevice = NULL;
+	}
 
 	super::stop(provider);
 }
+
+/***** Matching, interface acquisition, and such. *****/
+
+/* THIS IS NOT A PLACE OF HONOR.
+ * NO HIGHLY ESTEEMED DEED IS COMMEMORATED HERE.
+ * [...]
+ * THIS PLACE IS A MESSAGE AND PART OF A SYSTEM OF MESSAGES.
+ * WHAT IS HERE IS DANGEROUS AND REPULSIVE TO US.
+ * THIS MESSAGE IS A WARNING ABOUT DANGER.
+ * [...]
+ * WE CONSIDERED OURSELVES TO BE A POWERFUL CULTURE.
+ *
+ *   -- excerpted from "Expert Judgment on Markers to Deter Inadvertent
+ *      Human Intrusion into the Waste Isolation Pilot Plant", Sandia
+ *      National Laboratories report SAND92-1382 / UC-721
+ */
 
 IOService *MicroDriver::matchOne(uint32_t cl, uint32_t subcl, uint32_t proto) {
 	OSDictionary *dict;
@@ -138,35 +156,49 @@ IOService *MicroDriver::matchOne(uint32_t cl, uint32_t subcl, uint32_t proto) {
 	IOService *svc;
 	
 	dict = IOService::serviceMatching(kIOUSBInterfaceClassName);
-	if (!dict) {
-		LOG(V_ERROR, "could not create matching dict?");
-		return NULL;
-	}
+	if (!dict)
+		goto nodict;
 	
 	propertyDict = OSDictionary::withCapacity(3);
+	if (!propertyDict)
+		goto noprop;
 	
-	num = OSNumber::withNumber((uint64_t)cl, 32); /* XXX error check */
+	num = OSNumber::withNumber((uint64_t)cl, 32);
+	if (!num)
+		goto nonum;
 	propertyDict->setObject(kUSBInterfaceClass, num);
 	num->release();
 	
-	num = OSNumber::withNumber((uint64_t)subcl, 32); /* XXX error check */
+	num = OSNumber::withNumber((uint64_t)subcl, 32);
+	if (!num)
+		goto nonum;
 	propertyDict->setObject(kUSBInterfaceSubClass, num);
 	num->release();
 	
-	num = OSNumber::withNumber((uint64_t)proto, 32); /* XXX error check */
+	num = OSNumber::withNumber((uint64_t)proto, 32);
+	if (!num)
+		goto nonum;
 	propertyDict->setObject(kUSBInterfaceProtocol, num);
 	num->release();
 	
 	dict->setObject(kIOPropertyMatchKey, propertyDict);
 	propertyDict->release();
 	
-	LOG(V_NOTE, "OK, here we go waiting for a matching service with the new propertyDict");
 	svc = IOService::waitForMatchingService(dict, 1 * 1000000000 /* i.e., 1 sec */);
-	LOG(V_NOTE, "and we are back, having matched exactly %p", svc);
+	if (!svc)
+		LOG(V_NOTE, "timed out matching a %d/%d/%d", cl, subcl, proto);
 	
 	dict->release();
 	
 	return svc;
+
+nonum:
+	propertyDict->release();
+noprop:
+	dict->release();
+nodict:	
+	LOG(V_ERROR, "low memory error in matchOne(%d, %d, %d)", cl, subcl, proto);
+	return NULL;
 }
 
 bool MicroDriver::openInterfaces() {
@@ -175,7 +207,7 @@ bool MicroDriver::openInterfaces() {
 	IOService *datasvc;
 	
 	/* Set up the device's configuration. */
-	if (fpDevice->SetConfiguration(this, ctrlconfig /* config #0 */, true /* start matching */) != kIOReturnSuccess) {
+	if (fpDevice->SetConfiguration(this, ctrlconfig, true /* start matching */) != kIOReturnSuccess) {
 		LOG(V_ERROR, "failed to set configuration %d?", ctrlconfig);
 		goto bailout0;
 	}
@@ -183,13 +215,14 @@ bool MicroDriver::openInterfaces() {
 	/* Go looking for the comm interface. */
 	datasvc = matchOne(ctrlclass, ctrlsubclass, ctrlprotocol);
 	if (!datasvc) {
-		LOG(V_ERROR, "control: waitForMatchingService(%d, %d, %d) matched nothing?", ctrlclass, ctrlsubclass, ctrlprotocol);
+		LOG(V_ERROR, "control interface: waitForMatchingService(%d, %d, %d) matched nothing?", ctrlclass, ctrlsubclass, ctrlprotocol);
 		goto bailout0;
 	}
 
 	fCommInterface = OSDynamicCast(IOUSBInterface, datasvc);
 	if (!fCommInterface) {
 		LOG(V_ERROR, "RNDIS control interface not available?");
+		datasvc->release();
 		goto bailout0;
 	}
 
@@ -198,21 +231,70 @@ bool MicroDriver::openInterfaces() {
 		LOG(V_ERROR, "could not open RNDIS control interface?");
 		goto bailout1;
 	}
+	/* fCommInterface has been retained already, since it came from
+	 * waitForMatchingService.  */
 	
-	/* Go looking for the data interface.  */
-	datasvc = matchOne(10, 0, 0);
+	/* Go looking for the data interface.
+	 *
+	 * This takes a little more doing, since we need the one that comes
+	 * /immediately after/ the fCommInterface -- otherwise, we could end
+	 * up stealing the data interface for, for example, a CDC ACM
+	 * device.  But, the complication is that it might or might not have
+	 * been created yet.  And worse, if it gets created just after we
+	 * look, we might look for it and fail, and then
+	 * waitForMatchingService could *still* fail, because it gets
+	 * created just before waitForMatchingService is called!
+	 *
+	 * The synchronization primitive you are looking for here is called
+	 * a "condition variable".
+	 *
+	 * Grumble.
+	 */
+#if 0
+	req.bInterfaceClass    = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
+#else
+	req.bInterfaceClass    = 0x0A;
+	req.bInterfaceSubClass = 0x00;
+	req.bInterfaceProtocol = 0x00;
+#endif
+	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
-	if (!datasvc) {
-		LOG(V_ERROR, "waitForMatchingService matched nothing?");
-		goto bailout2;
+	int counter;
+	
+	counter = 10;
+	while ((fDataInterface = fpDevice->FindNextInterface(fCommInterface, &req)) == NULL && counter--) {
+		datasvc = matchOne(0x0A, 0x00, 0x00 /* req.bInterfaceClass, req.bInterfaceSubClass, req.bInterfaceProtocol */);
+		if (datasvc) {
+			/* We could have a winner, but it might be something
+			 * else.  Let FindNextInterface deal with it for us. 
+			 * Technically we should probably use an interface
+			 * association descriptor, but I don't think that's
+			 * exposed readily, so ...  */
+			datasvc->release();
+		} else {
+			/* Not a winner, and we never will be - it's been a
+			 * whole second!  */
+			break;
+		}
 	}
 	
-	fDataInterface = OSDynamicCast(IOUSBInterface, datasvc);
+	if (counter <= 0) {
+		LOG(V_ERROR, "data interface: timed out after ten attempts to find an fDataInterface; waitForMatchingService() gave us something, but FindNextInterface couldn't find it?");
+	}
+
+	/* Deal with that pesky race condition by looking /just once more/. */
 	if (!fDataInterface) {
-		LOG(V_ERROR, "RNDIS data interface not available?");
+		fDataInterface = fpDevice->FindNextInterface(fCommInterface, &req);
+	}
+	
+	if (!fDataInterface) {
+		LOG(V_ERROR, "data interface: we never managed to find a friend :(");
 		goto bailout2;
 	}
-	LOG(V_PTR, "PTR: fDataInterface: %p", fDataInterface);
+	
+	LOG(V_ERROR, "data interface: okay, I got one, and it was a 0x%02x/0x%02x/0x%02x", fDataInterface->GetInterfaceClass(), fDataInterface->GetInterfaceSubClass(), fDataInterface->GetInterfaceProtocol());
 	
 	rc = fDataInterface->open(this);
 	if (!rc) {
@@ -224,16 +306,20 @@ bool MicroDriver::openInterfaces() {
 		LOG(V_ERROR, "not enough endpoints on data interface?");
 		goto bailout4;
 	}
-	
-	fCommInterface->retain();
+
+	/* Of course, since we got this one from FindNextInterface, not from
+	 * waitForMatchingService, we have to do lifecycle management of
+	 * this thing on our own.
+	 *
+	 * I don't believe that this is safe, but race conditions can be
+	 * avoided by appropriate haste in critical sections, I suppose.
+	 */
 	fDataInterface->retain();
 	
-	
-	/* And we're done! */
+	/* And we're done!  Wasn't that easy?*/
 	return true;
 	
 bailout5:
-	fCommInterface->release();
 	fDataInterface->release();
 bailout4:
 	fDataInterface->close(this);
@@ -242,6 +328,7 @@ bailout3:
 bailout2:
 	fCommInterface->close(this);
 bailout1:
+	fCommInterface->release();
 	fCommInterface = NULL;
 bailout0:
 	/* Show what interfaces we saw. */
@@ -254,7 +341,6 @@ bailout0:
 	while ((ifc = fpDevice->FindNextInterface(ifc, &req))) {
 		LOG(V_ERROR, "openInterfaces:   class 0x%02x, subclass 0x%02x, protocol 0x%02x", ifc->GetInterfaceClass(), ifc->GetInterfaceSubClass(), ifc->GetInterfaceProtocol());
 	}
-	/* LOG(V_ERROR, "openInterfaces: I woke up having been called to look at interface #%d, which has class 0x%02x, subclass 0x%02x, protocol 0x%02x", fpInterface->GetInterfaceNumber(), fpInterface->GetInterfaceClass(), fpInterface->GetInterfaceSubClass(), fpInterface->GetInterfaceProtocol()); */
 	
 	return false;
 }
