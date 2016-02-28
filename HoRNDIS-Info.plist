@@ -26,27 +26,12 @@
 	<string>6</string>
 	<key>IOKitPersonalities</key>
 	<dict>
-		<key>HoRNDISComposite_SGS2</key>
+		<key>MicroDriverDevice3</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBInterface</string>
-			<key>IOProviderClass</key>
-			<string>IOUSBInterface</string>
-			<key>bInterfaceClass</key>
-			<integer>2</integer>
-			<key>bInterfaceProtocol</key>
-			<integer>255</integer>
-			<key>bInterfaceSubClass</key>
-			<integer>2</integer>
-		</dict>
-		<key>HoRNDISDevice3</key>
-		<dict>
-			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
-			<key>IOClass</key>
-			<string>AppleUSBComposite</string>
+			<string>HoRNDISUSBDevice</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBDevice</string>
 			<key>bDeviceClass</key>
@@ -61,7 +46,7 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>AppleUSBComposite</string>
+			<string>HoRNDISUSBDevice</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBDevice</string>
 			<key>bDeviceClass</key>
@@ -76,7 +61,7 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>AppleUSBComposite</string>
+			<string>HoRNDISUSBDevice</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBDevice</string>
 			<key>bDeviceClass</key>
@@ -86,20 +71,20 @@
 			<key>bDeviceProtocol</key>
 			<integer>0</integer>
 		</dict>
-		<key>HoRNDISComposite</key>
+		<key>HoRNDISDeviceComposite</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBInterface</string>
+			<string>HoRNDISUSBDevice</string>
 			<key>IOProviderClass</key>
-			<string>IOUSBInterface</string>
-			<key>bInterfaceClass</key>
-			<integer>224</integer>
-			<key>bInterfaceProtocol</key>
-			<integer>3</integer>
-			<key>bInterfaceSubClass</key>
-			<integer>1</integer>
+			<string>IOUSBDevice</string>
+			<key>bDeviceClass</key>
+			<integer>0</integer>
+			<key>bDeviceSubClass</key>
+			<integer>0</integer>
+			<key>bDeviceProtocol</key>
+			<integer>0</integer>
 		</dict>
 	</dict>
 	<key>OSBundleLibraries</key>

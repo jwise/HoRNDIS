@@ -267,11 +267,19 @@ private:
 	int rndisCommand(struct rndis_msg_hdr *buf, int buflen);
 	int rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, int *reply_len);
 	bool rndisSetPacketFilter(uint32_t filter);
+
+	bool openInterfaces();
+	int ctrlclass, ctrlsubclass, ctrlprotocol, ctrlconfig;
 	
+	/* The capitalization, of course, is inconsistent, because that's
+	 * just how it came from the APIs that they wrap.  Blame Apple, not
+	 * me.  */
+	static IOService *waitForMatchingUSBInterface(uint32_t cl, uint32_t subcl, uint32_t proto);
+	IOUSBInterface *FindNextMatchingInterface(IOUSBInterface *intf, uint32_t cl, uint32_t subcl, uint32_t proto);
+
 	bool createMediumTables(void);
 	bool allocateResources(void);
 	void releaseResources(void);
-	bool openInterfaces();
 	bool createNetworkInterface(void);
 	UInt32 outputPacket(mbuf_t pkt, void *param);
 	IOReturn clearPipeStall(IOUSBPipe *thePipe);
@@ -290,6 +298,7 @@ public:
 	virtual bool createWorkLoop();
 	virtual IOWorkLoop *getWorkLoop() const;
 	virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
+	virtual IOService *probe(IOService *provider, SInt32 *score);
 
 	// IOEthernetController overrides
 	virtual IOReturn enable(IONetworkInterface *netif);
@@ -305,8 +314,8 @@ public:
 };
 
 /* If there are other ways to get access to a device, we probably want them here. */
-class HoRNDISUSBInterface : public HoRNDIS {
-	OSDeclareDefaultStructors(HoRNDISUSBInterface);
+class HoRNDISUSBDevice : public HoRNDIS {
+	OSDeclareDefaultStructors(HoRNDISUSBDevice);
 public:
 	virtual bool start(IOService *provider);
 };

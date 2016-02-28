@@ -28,6 +28,12 @@
 
 #include "HoRNDIS.h"
 
+#include <IOKit/IOKitKeys.h>
+#include <IOKit/usb/USBSpec.h>
+
+/* This is only available in the userspace IOKit.framework's usb/IOUSBLib.h, for some reason.  So instead: */
+#define kIOUSBInterfaceClassName  "IOUSBInterface"
+
 #define MYNAME "HoRNDIS"
 #define V_PTR 0
 #define V_DEBUG 1
@@ -40,7 +46,7 @@
 #define super IOEthernetController
 
 OSDefineMetaClassAndStructors(HoRNDIS, IOEthernetController);
-OSDefineMetaClassAndStructors(HoRNDISUSBInterface, HoRNDIS);
+OSDefineMetaClassAndStructors(HoRNDISUSBDevice, HoRNDIS);
 OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 
 bool HoRNDIS::init(OSDictionary *properties) {
@@ -88,19 +94,18 @@ bool HoRNDIS::init(OSDictionary *properties) {
 
 /* IOKit class wrappers */
 
-bool HoRNDISUSBInterface::start(IOService *provider) {
-	IOUSBInterface *intf;
+bool HoRNDISUSBDevice::start(IOService *provider) {
+	IOUSBDevice *dev;
 	
-	LOG(V_DEBUG, "start, as IOUSBInterface");
+	LOG(V_DEBUG, "start, as IOUSBDevice");
 
-	intf = OSDynamicCast(IOUSBInterface, provider);
-	if (!intf) {
-		LOG(V_ERROR, "cast to IOUSBInterface failed?");
+	dev = OSDynamicCast(IOUSBDevice, provider);
+	if (!dev) {
+		LOG(V_ERROR, "cast to IOUSBDevice failed?");
 		return false;
 	}
 	
-	fpDevice = intf->GetDevice();
-	fpInterface = intf;
+	fpDevice = dev;
 	
 	return HoRNDIS::start(provider);
 }
@@ -116,8 +121,17 @@ bool HoRNDIS::start(IOService *provider) {
 		return false;
 	}
 
+	fpDevice->retain();
+	if (!fpDevice->open(this)) {
+		LOG(V_ERROR, "could not open the device at all?");
+		fpDevice->release();
+		fpDevice = NULL;
+		goto bailout;
+	}
+
 	if (!openInterfaces())
 		goto bailout;
+	
 	if (!rndisInit())
 		goto bailout;
 	
@@ -130,8 +144,6 @@ bool HoRNDIS::start(IOService *provider) {
 	return true;
 
 bailout:
-	fpDevice->close(this);
-	fpDevice = NULL;
 	stop(provider);
 	return false;
 }
@@ -154,6 +166,12 @@ void HoRNDIS::stop(IOService *provider) {
 		fDataInterface->close(this);	
 		fDataInterface->release();
 		fDataInterface = NULL;	
+	}
+
+	if (fpDevice) {
+		fpDevice->close(this);
+		fpDevice->release();
+		fpDevice = NULL;
 	}
 
 	if (fMediumDict) {
@@ -194,34 +212,194 @@ IOWorkLoop *HoRNDIS::getWorkLoop() const {
 	return workloop;
 }
 
+/***** Matching, interface acquisition, and such. *****/
+
+/* THIS IS NOT A PLACE OF HONOR.
+ * NO HIGHLY ESTEEMED DEED IS COMMEMORATED HERE.
+ * [...]
+ * THIS PLACE IS A MESSAGE AND PART OF A SYSTEM OF MESSAGES.
+ * WHAT IS HERE IS DANGEROUS AND REPULSIVE TO US.
+ * THIS MESSAGE IS A WARNING ABOUT DANGER.
+ * [...]
+ * WE CONSIDERED OURSELVES TO BE A POWERFUL CULTURE.
+ *
+ *   -- excerpted from "Expert Judgment on Markers to Deter Inadvertent
+ *      Human Intrusion into the Waste Isolation Pilot Plant", Sandia
+ *      National Laboratories report SAND92-1382 / UC-721
+ */
+
+/* IOService::waitForMatchingService is kind of a difficult API to use.  We
+ * wrap it to wait for a specific matching USB interface.  */
+IOService *HoRNDIS::waitForMatchingUSBInterface(uint32_t cl, uint32_t subcl, uint32_t proto) {
+	OSDictionary *dict;
+	OSDictionary *propertyDict;
+	OSNumber *num;
+	IOService *svc;
+	
+	dict = IOService::serviceMatching(kIOUSBInterfaceClassName);
+	if (!dict)
+		goto nodict;
+	
+	propertyDict = OSDictionary::withCapacity(3);
+	if (!propertyDict)
+		goto noprop;
+	
+	num = OSNumber::withNumber((uint64_t)cl, 32);
+	if (!num)
+		goto nonum;
+	propertyDict->setObject(kUSBInterfaceClass, num);
+	num->release();
+	
+	num = OSNumber::withNumber((uint64_t)subcl, 32);
+	if (!num)
+		goto nonum;
+	propertyDict->setObject(kUSBInterfaceSubClass, num);
+	num->release();
+	
+	num = OSNumber::withNumber((uint64_t)proto, 32);
+	if (!num)
+		goto nonum;
+	propertyDict->setObject(kUSBInterfaceProtocol, num);
+	num->release();
+	
+	dict->setObject(kIOPropertyMatchKey, propertyDict);
+	propertyDict->release();
+	
+	svc = IOService::waitForMatchingService(dict, 1 * 1000000000 /* i.e., 1 sec */);
+	if (!svc)
+		LOG(V_NOTE, "timed out matching a %d/%d/%d", cl, subcl, proto);
+	
+	dict->release();
+	
+	return svc;
+
+nonum:
+	propertyDict->release();
+noprop:
+	dict->release();
+nodict:	
+	LOG(V_ERROR, "low memory error in waitForMatchingUSBInterface(%d, %d, %d)", cl, subcl, proto);
+	return NULL;
+}
+
+/* There are a great number of truly amazing things about Mac OS X 10.11,
+ * and its USB stack.  It's not terribly amazing that they broke break
+ * subtle functionality that wasn't really guaranteed to work in the first
+ * place.  For instance, subtle race conditions changing their "usual"
+ * behavior is agonizing, but I can't really harbor too much hatred in my
+ * heart for Apple for that.
+ *
+ * No, the thing that amazes the most, I think, is that they managed to
+ * break overt high-level functionality.  For instance,
+ * IOUSBDevice::FindNextInterface sometimes only works if the fields in
+ * IOUSBFindInterfaceRequest are set to kIOUSBFindInterfaceDontCare.  If you
+ * set bInterfaceClass to something that you care about and call it with a
+ * non-NULL initial interface, it might just return NULL instead.  You can
+ * go ahead and call it back with don't-cares in the fields...  and then
+ * you'll get an interface that matches perfectly.  "Ha ha, sucker, sorry, I
+ * lied."
+ *
+ * So we reimplement it on top of the existing primitive so that we can
+ * actually go find an interface that we want.
+ */
+IOUSBInterface *HoRNDIS::FindNextMatchingInterface(IOUSBInterface *intf, uint32_t cl, uint32_t subcl, uint32_t proto) {
+	IOUSBFindInterfaceRequest req;
+	
+	req.bInterfaceClass    = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
+	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
+	
+	do
+		intf = fpDevice->FindNextInterface(intf, &req);
+	while (intf && intf->GetInterfaceClass() != cl && intf->GetInterfaceSubClass() != subcl && intf->GetInterfaceProtocol() != proto);
+
+	return intf;
+}
 
 bool HoRNDIS::openInterfaces() {
-	IOUSBFindInterfaceRequest req;
+	IOReturn rc;
 	IOUSBFindEndpointRequest epReq;
-	int rc;
+	IOService *datasvc;
 	
-	fCommInterface = fpInterface;
+	/* Set up the device's configuration. */
+	if (fpDevice->SetConfiguration(this, ctrlconfig, true /* start matching */) != kIOReturnSuccess) {
+		LOG(V_ERROR, "failed to set configuration %d?", ctrlconfig);
+		goto bailout0;
+	}
 	
-	fCommInterface->retain();
+	/* Go looking for the comm interface. */
+	datasvc = waitForMatchingUSBInterface(ctrlclass, ctrlsubclass, ctrlprotocol);
+	if (!datasvc) {
+		LOG(V_ERROR, "control interface: waitForMatchingService(%d, %d, %d) matched nothing?", ctrlclass, ctrlsubclass, ctrlprotocol);
+		goto bailout0;
+	}
+
+	fCommInterface = OSDynamicCast(IOUSBInterface, datasvc);
+	if (!fCommInterface) {
+		LOG(V_ERROR, "RNDIS control interface not available?");
+		datasvc->release();
+		goto bailout0;
+	}
+
 	rc = fCommInterface->open(this);
-	fCommInterface->release();
 	if (!rc) {
 		LOG(V_ERROR, "could not open RNDIS control interface?");
 		goto bailout1;
 	}
-
-	/* open up the RNDIS data interface */
-	req.bInterfaceClass    = 0x0A;
-	req.bInterfaceSubClass = 0x00;
-	req.bInterfaceProtocol = 0x00;
-	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
+	/* fCommInterface has been retained already, since it came from
+	 * waitForMatchingService.  */
 	
-	fDataInterface = fpDevice->FindNextInterface(fCommInterface, &req);
+	/* Go looking for the data interface.
+	 *
+	 * This takes a little more doing, since we need the one that comes
+	 * /immediately after/ the fCommInterface -- otherwise, we could end
+	 * up stealing the data interface for, for example, a CDC ACM
+	 * device.  But, the complication is that it might or might not have
+	 * been created yet.  And worse, if it gets created just after we
+	 * look, we might look for it and fail, and then
+	 * waitForMatchingService could *still* fail, because it gets
+	 * created just before waitForMatchingService is called!
+	 *
+	 * The synchronization primitive you are looking for here is called
+	 * a "condition variable".
+	 *
+	 * Grumble.
+	 */
+	int counter;
+	
+	counter = 10;
+	while ((fDataInterface = FindNextMatchingInterface(fCommInterface, 0x0A, 0x00, 0x00)) == NULL && counter--) {
+		datasvc = waitForMatchingUSBInterface(0x0A, 0x00, 0x00 /* req.bInterfaceClass, req.bInterfaceSubClass, req.bInterfaceProtocol */);
+		if (datasvc) {
+			/* We could have a winner, but it might be something
+			 * else.  Let FindNextInterface deal with it for us. 
+			 * Technically we should probably use an interface
+			 * association descriptor, but I don't think that's
+			 * exposed readily, so ...  */
+			datasvc->release();
+		} else {
+			/* Not a winner, and we never will be - it's been a
+			 * whole second!  */
+			break;
+		}
+	}
+	
+	if (counter <= 0) {
+		LOG(V_ERROR, "data interface: timed out after ten attempts to find an fDataInterface; waitForMatchingService() gave us something, but FindNextInterface couldn't find it?");
+	}
+
+	/* Deal with that pesky race condition by looking /just once more/. */
 	if (!fDataInterface) {
-		LOG(V_ERROR, "RNDIS data interface not available?");
+		fDataInterface = FindNextMatchingInterface(fCommInterface, 0x0A, 0x00, 0x00);
+	}
+	
+	if (!fDataInterface) {
+		LOG(V_ERROR, "data interface: we never managed to find a friend :(");
 		goto bailout2;
 	}
-	LOG(V_PTR, "PTR: fDataInterface: %p", fDataInterface);
+	
+	LOG(V_ERROR, "data interface: okay, I got one, and it was a 0x%02x/0x%02x/0x%02x", fDataInterface->GetInterfaceClass(), fDataInterface->GetInterfaceSubClass(), fDataInterface->GetInterfaceProtocol());
 	
 	rc = fDataInterface->open(this);
 	if (!rc) {
@@ -233,8 +411,14 @@ bool HoRNDIS::openInterfaces() {
 		LOG(V_ERROR, "not enough endpoints on data interface?");
 		goto bailout4;
 	}
-	
-	fCommInterface->retain();
+
+	/* Of course, since we got this one from FindNextInterface, not from
+	 * waitForMatchingService, we have to do lifecycle management of
+	 * this thing on our own.
+	 *
+	 * I don't believe that this is safe, but race conditions can be
+	 * avoided by appropriate haste in critical sections, I suppose.
+	 */
 	fDataInterface->retain();
 	
 	/* open up the endpoints */
@@ -261,11 +445,10 @@ bool HoRNDIS::openInterfaces() {
 	
 	/* Currently, we don't even bother to listen on the interrupt pipe. */
 	
-	/* And we're done! */
+	/* And we're done!  Wasn't that easy?*/
 	return true;
 	
 bailout5:
-	fCommInterface->release();
 	fDataInterface->release();
 bailout4:
 	fDataInterface->close(this);
@@ -274,22 +457,78 @@ bailout3:
 bailout2:
 	fCommInterface->close(this);
 bailout1:
+	fCommInterface->release();
 	fCommInterface = NULL;
 bailout0:
 	/* Show what interfaces we saw. */
+	IOUSBFindInterfaceRequest req;
+
 	req.bInterfaceClass = kIOUSBFindInterfaceDontCare;
 	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
 	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
+	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
 	IOUSBInterface *ifc = NULL;
 	LOG(V_ERROR, "openInterfaces: before I fail, here are all the interfaces that I saw, in case you care ...");
 	while ((ifc = fpDevice->FindNextInterface(ifc, &req))) {
 		LOG(V_ERROR, "openInterfaces:   class 0x%02x, subclass 0x%02x, protocol 0x%02x", ifc->GetInterfaceClass(), ifc->GetInterfaceSubClass(), ifc->GetInterfaceProtocol());
 	}
-	LOG(V_ERROR, "openInterfaces: I woke up having been called to look at interface #%d, which has class 0x%02x, subclass 0x%02x, protocol 0x%02x", fpInterface->GetInterfaceNumber(), fpInterface->GetInterfaceClass(), fpInterface->GetInterfaceSubClass(), fpInterface->GetInterfaceProtocol());
 	
 	return false;
 }
+
+IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
+	LOG(V_NOTE, "probe: came in with a score of %d\n", *score);
+	IOUSBDevice *dev = OSDynamicCast(IOUSBDevice, provider); /* XXX: error check */
+	
+	/* Do we even have one of the things that we can match on?  If not, return NULL.  Either 2/255/2, or 224/3/1.  */
+	const IOUSBConfigurationDescriptor *cd;
+	
+	cd = dev->GetFullConfigurationDescriptor(0);
+	if (!cd) {
+		LOG(V_ERROR, "probe: failed to get a configuration descriptor for configuration 0?");
+		return NULL;
+	}
+	
+	/* And look for one of the options. */
+	IOUSBInterfaceDescriptor *descout;
+	IOUSBFindInterfaceRequest req;
+	bool found = false;
+	
+	ctrlconfig = cd->bConfigurationValue;
+	
+	req.bInterfaceClass = 2;
+	req.bInterfaceSubClass = 2;
+	req.bInterfaceProtocol = 255;
+	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
+		LOG(V_NOTE, "probe: looks like we're good (2/2/255)");
+		ctrlclass = 2;
+		ctrlsubclass = 2;
+		ctrlprotocol = 255;
+		found = true;
+	}
+
+	req.bInterfaceClass = 224;
+	req.bInterfaceSubClass = 1;
+	req.bInterfaceProtocol = 3;
+	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
+		ctrlclass = 224;
+		ctrlsubclass = 1;
+		ctrlprotocol = 3;
+		LOG(V_NOTE, "probe: looks like we're good (224/1/3)");
+		found = true;
+	}
+	
+	if (!found) {
+		LOG(V_NOTE, "probe: this composite device is not for us");
+		return NULL;
+	}
+	
+	*score += 10000;
+	return this;
+}
+
+/***** Ethernet interface bits *****/
 
 /* We need our own createInterface (overriding the one in IOEthernetController) because we need our own subclass of IOEthernetInterface.  Why's that, you say?  Well, we need that because that's the only way to set a different default MTU.  Sigh... */
 
