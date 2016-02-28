@@ -73,7 +73,12 @@ private:
 	bool openInterfaces();
 	
 	int ctrlclass, ctrlsubclass, ctrlprotocol, ctrlconfig;
-	IOService *matchOne(uint32_t cl, uint32_t subcl, uint32_t proto);
+	
+	/* The capitalization, of course, is inconsistent, because that's
+	 * just how it came from the APIs that they wrap.  Blame Apple, not
+	 * me.  */
+	static IOService *waitForMatchingUSBInterface(uint32_t cl, uint32_t subcl, uint32_t proto);
+	IOUSBInterface *FindNextMatchingInterface(IOUSBInterface *intf, uint32_t cl, uint32_t subcl, uint32_t proto);
 	
 public:
 	IOUSBDevice *fpDevice;

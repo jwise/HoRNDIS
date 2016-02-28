@@ -149,7 +149,9 @@ void MicroDriver::stop(IOService *provider) {
  *      National Laboratories report SAND92-1382 / UC-721
  */
 
-IOService *MicroDriver::matchOne(uint32_t cl, uint32_t subcl, uint32_t proto) {
+/* IOService::waitForMatchingService is kind of a difficult API to use.  We
+ * wrap it to wait for a specific matching USB interface.  */
+IOService *MicroDriver::waitForMatchingUSBInterface(uint32_t cl, uint32_t subcl, uint32_t proto) {
 	OSDictionary *dict;
 	OSDictionary *propertyDict;
 	OSNumber *num;
@@ -197,12 +199,46 @@ nonum:
 noprop:
 	dict->release();
 nodict:	
-	LOG(V_ERROR, "low memory error in matchOne(%d, %d, %d)", cl, subcl, proto);
+	LOG(V_ERROR, "low memory error in waitForMatchingUSBInterface(%d, %d, %d)", cl, subcl, proto);
 	return NULL;
 }
 
-bool MicroDriver::openInterfaces() {
+/* There are a great number of truly amazing things about Mac OS X 10.11,
+ * and its USB stack.  It's not terribly amazing that they broke break
+ * subtle functionality that wasn't really guaranteed to work in the first
+ * place.  For instance, subtle race conditions changing their "usual"
+ * behavior is agonizing, but I can't really harbor too much hatred in my
+ * heart for Apple for that.
+ *
+ * No, the thing that amazes the most, I think, is that they managed to
+ * break overt high-level functionality.  For instance,
+ * IOUSBDevice::FindNextInterface sometimes only works if the fields in
+ * IOUSBFindInterfaceRequest are set to kIOUSBFindInterfaceDontCare.  If you
+ * set bInterfaceClass to something that you care about and call it with a
+ * non-NULL initial interface, it might just return NULL instead.  You can
+ * go ahead and call it back with don't-cares in the fields...  and then
+ * you'll get an interface that matches perfectly.  "Ha ha, sucker, sorry, I
+ * lied."
+ *
+ * So we reimplement it on top of the existing primitive so that we can
+ * actually go find an interface that we want.
+ */
+IOUSBInterface *MicroDriver::FindNextMatchingInterface(IOUSBInterface *intf, uint32_t cl, uint32_t subcl, uint32_t proto) {
 	IOUSBFindInterfaceRequest req;
+	
+	req.bInterfaceClass    = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
+	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
+	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
+	
+	do
+		intf = fpDevice->FindNextInterface(intf, &req);
+	while (intf && intf->GetInterfaceClass() != cl && intf->GetInterfaceSubClass() != subcl && intf->GetInterfaceProtocol() != proto);
+
+	return intf;
+}
+
+bool MicroDriver::openInterfaces() {
 	IOReturn rc;
 	IOService *datasvc;
 	
@@ -213,7 +249,7 @@ bool MicroDriver::openInterfaces() {
 	}
 	
 	/* Go looking for the comm interface. */
-	datasvc = matchOne(ctrlclass, ctrlsubclass, ctrlprotocol);
+	datasvc = waitForMatchingUSBInterface(ctrlclass, ctrlsubclass, ctrlprotocol);
 	if (!datasvc) {
 		LOG(V_ERROR, "control interface: waitForMatchingService(%d, %d, %d) matched nothing?", ctrlclass, ctrlsubclass, ctrlprotocol);
 		goto bailout0;
@@ -250,22 +286,11 @@ bool MicroDriver::openInterfaces() {
 	 *
 	 * Grumble.
 	 */
-#if 0
-	req.bInterfaceClass    = kIOUSBFindInterfaceDontCare;
-	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
-	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
-#else
-	req.bInterfaceClass    = 0x0A;
-	req.bInterfaceSubClass = 0x00;
-	req.bInterfaceProtocol = 0x00;
-#endif
-	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
-	
 	int counter;
 	
 	counter = 10;
-	while ((fDataInterface = fpDevice->FindNextInterface(fCommInterface, &req)) == NULL && counter--) {
-		datasvc = matchOne(0x0A, 0x00, 0x00 /* req.bInterfaceClass, req.bInterfaceSubClass, req.bInterfaceProtocol */);
+	while ((fDataInterface = FindNextMatchingInterface(fCommInterface, 0x0A, 0x00, 0x00)) == NULL && counter--) {
+		datasvc = waitForMatchingUSBInterface(0x0A, 0x00, 0x00 /* req.bInterfaceClass, req.bInterfaceSubClass, req.bInterfaceProtocol */);
 		if (datasvc) {
 			/* We could have a winner, but it might be something
 			 * else.  Let FindNextInterface deal with it for us. 
@@ -286,7 +311,7 @@ bool MicroDriver::openInterfaces() {
 
 	/* Deal with that pesky race condition by looking /just once more/. */
 	if (!fDataInterface) {
-		fDataInterface = fpDevice->FindNextInterface(fCommInterface, &req);
+		fDataInterface = FindNextMatchingInterface(fCommInterface, 0x0A, 0x00, 0x00);
 	}
 	
 	if (!fDataInterface) {
@@ -332,9 +357,12 @@ bailout1:
 	fCommInterface = NULL;
 bailout0:
 	/* Show what interfaces we saw. */
+	IOUSBFindInterfaceRequest req;
+
 	req.bInterfaceClass = kIOUSBFindInterfaceDontCare;
 	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
 	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
+	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
 	
 	IOUSBInterface *ifc = NULL;
 	LOG(V_ERROR, "openInterfaces: before I fail, here are all the interfaces that I saw, in case you care ...");
