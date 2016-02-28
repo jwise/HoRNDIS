@@ -35,6 +35,7 @@
 #define kIOUSBInterfaceClassName  "IOUSBInterface"
 
 #define MYNAME "HoRNDIS"
+#define VERSION "rel8pre2 (PRERELEASE)"
 #define V_PTR 0
 #define V_DEBUG 1
 #define V_NOTE 2
@@ -52,7 +53,7 @@ OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 bool HoRNDIS::init(OSDictionary *properties) {
 	int i;
 
-	LOG(V_NOTE, "HoRNDIS tethering driver for Mac OS X, by Joshua Wise");
+	LOG(V_NOTE, "HoRNDIS tethering driver for Mac OS X, by Joshua Wise (%s)", VERSION);
 	
 	if (super::init(properties) == false) {
 		LOG(V_ERROR, "initialize super failed");
