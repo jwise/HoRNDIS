@@ -35,7 +35,7 @@
 #define kIOUSBInterfaceClassName  "IOUSBInterface"
 
 #define MYNAME "HoRNDIS"
-#define VERSION "rel8pre2 (PRERELEASE)"
+#define VERSION "rel8 final"
 #define V_PTR 0
 #define V_DEBUG 1
 #define V_NOTE 2
@@ -479,7 +479,7 @@ bailout0:
 }
 
 IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
-	LOG(V_NOTE, "probe: came in with a score of %d\n", *score);
+	LOG(V_NOTE, "probe: came in with a score of %d", *score);
 	IOUSBDevice *dev = OSDynamicCast(IOUSBDevice, provider); /* XXX: error check */
 	
 	/* Do we even have one of the things that we can match on?  If not, return NULL.  Either 2/255/2, or 224/3/1.  */
