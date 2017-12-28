@@ -519,6 +519,17 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
 		LOG(V_NOTE, "probe: looks like we're good (224/1/3)");
 		found = true;
 	}
+
+	req.bInterfaceClass = 239;
+	req.bInterfaceSubClass = 4;
+	req.bInterfaceProtocol = 1;
+	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
+		ctrlclass = 239;
+		ctrlsubclass = 4;
+		ctrlprotocol = 1;
+		LOG(V_NOTE, "probe: looks like we're good (239/4/1)");
+		found = true;
+	}
 	
 	if (!found) {
 		LOG(V_NOTE, "probe: this composite device is not for us");
