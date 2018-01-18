@@ -105,7 +105,9 @@ bool HoRNDISUSBDevice::start(IOService *provider) {
 		LOG(V_ERROR, "cast to IOUSBDevice failed?");
 		return false;
 	}
-	
+	UInt32 result = dev -> RequestExtraPower(kUSBPowerDuringWake, 1000);
+	LOG(V_NOTE, "RequestExtraPower result = %d", result);
+
 	fpDevice = dev;
 	
 	return HoRNDIS::start(provider);
