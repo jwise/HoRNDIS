@@ -90,17 +90,17 @@
 	<key>OSBundleLibraries</key>
 	<dict>
 		<key>com.apple.iokit.IONetworkingFamily</key>
-		<string>1.1</string>
-		<key>com.apple.iokit.IOUSBFamily</key>
-		<string>1.8</string>
+		<string>3.2</string>
+		<key>com.apple.iokit.IOUSBHostFamily</key>
+		<string>1.0.1</string>
 		<key>com.apple.kpi.bsd</key>
-		<string>8.0</string>
+		<string>15.0</string>
 		<key>com.apple.kpi.iokit</key>
-		<string>8.0</string>
+		<string>15.0</string>
 		<key>com.apple.kpi.libkern</key>
-		<string>8.0</string>
+		<string>15.0</string>
 		<key>com.apple.kpi.mach</key>
-		<string>8.0</string>
+		<string>15.0</string>
 	</dict>
 </dict>
 </plist>
