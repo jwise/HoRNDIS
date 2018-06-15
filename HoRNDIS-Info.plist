@@ -18,12 +18,10 @@
 	<string>${PRODUCT_NAME}</string>
 	<key>CFBundlePackageType</key>
 	<string>KEXT</string>
-	<key>CFBundleShortVersionString</key>
-	<string>8.0</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>6</string>
+	<string>$(MODULE_VERSION)</string>
 	<key>IOKitPersonalities</key>
 	<dict>
 		<key>HoRNDISDevice</key>
@@ -31,9 +29,9 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBDevice</string>
+			<string>HoRNDIS</string>
 			<key>IOProviderClass</key>
-			<string>IOUSBDevice</string>
+			<string>IOUSBHostDevice</string>
 			<key>bDeviceClass</key>
 			<integer>224</integer>
 			<key>bDeviceProtocol</key>
@@ -46,9 +44,9 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBDevice</string>
+			<string>HoRNDIS</string>
 			<key>IOProviderClass</key>
-			<string>IOUSBDevice</string>
+			<string>IOUSBHostDevice</string>
 			<key>bDeviceClass</key>
 			<integer>239</integer>
 			<key>bDeviceProtocol</key>
@@ -61,9 +59,9 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBDevice</string>
+			<string>HoRNDIS</string>
 			<key>IOProviderClass</key>
-			<string>IOUSBDevice</string>
+			<string>IOUSBHostDevice</string>
 			<key>bDeviceClass</key>
 			<integer>0</integer>
 			<key>bDeviceProtocol</key>
@@ -76,9 +74,9 @@
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
-			<string>HoRNDISUSBDevice</string>
+			<string>HoRNDIS</string>
 			<key>IOProviderClass</key>
-			<string>IOUSBDevice</string>
+			<string>IOUSBHostDevice</string>
 			<key>bDeviceClass</key>
 			<integer>2</integer>
 			<key>bDeviceProtocol</key>
