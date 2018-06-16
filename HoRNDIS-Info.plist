@@ -24,65 +24,20 @@
 	<string>$(MODULE_VERSION)</string>
 	<key>IOKitPersonalities</key>
 	<dict>
-		<key>HoRNDISDevice</key>
+		<key>RNDISControlInterface</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
 			<key>IOClass</key>
 			<string>HoRNDIS</string>
 			<key>IOProviderClass</key>
-			<string>IOUSBHostDevice</string>
-			<key>bDeviceClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>bInterfaceClass</key>
 			<integer>224</integer>
-			<key>bDeviceProtocol</key>
-			<integer>0</integer>
-			<key>bDeviceSubClass</key>
-			<integer>0</integer>
-		</dict>
-		<key>HoRNDISDevice2</key>
-		<dict>
-			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
-			<key>IOClass</key>
-			<string>HoRNDIS</string>
-			<key>IOProviderClass</key>
-			<string>IOUSBHostDevice</string>
-			<key>bDeviceClass</key>
-			<integer>239</integer>
-			<key>bDeviceProtocol</key>
+			<key>bInterfaceSubClass</key>
 			<integer>1</integer>
-			<key>bDeviceSubClass</key>
-			<integer>2</integer>
-		</dict>
-		<key>HoRNDISDeviceComposite</key>
-		<dict>
-			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
-			<key>IOClass</key>
-			<string>HoRNDIS</string>
-			<key>IOProviderClass</key>
-			<string>IOUSBHostDevice</string>
-			<key>bDeviceClass</key>
-			<integer>0</integer>
-			<key>bDeviceProtocol</key>
-			<integer>0</integer>
-			<key>bDeviceSubClass</key>
-			<integer>0</integer>
-		</dict>
-		<key>MicroDriverDevice3</key>
-		<dict>
-			<key>CFBundleIdentifier</key>
-			<string>com.joshuawise.kexts.HoRNDIS</string>
-			<key>IOClass</key>
-			<string>HoRNDIS</string>
-			<key>IOProviderClass</key>
-			<string>IOUSBHostDevice</string>
-			<key>bDeviceClass</key>
-			<integer>2</integer>
-			<key>bDeviceProtocol</key>
-			<integer>0</integer>
-			<key>bDeviceSubClass</key>
-			<integer>0</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>3</integer>
 		</dict>
 	</dict>
 	<key>OSBundleLibraries</key>
