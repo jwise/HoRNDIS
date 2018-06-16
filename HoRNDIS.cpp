@@ -114,8 +114,9 @@ bool HoRNDISUSBDevice::start(IOService *provider) {
 bool HoRNDIS::start(IOService *provider) {
 	LOG(V_DEBUG, "start");
 	
-	if(!super::start(provider))
+	if(!super::start(provider)) {
 		return false;
+	}
 
 	if (!fpDevice) {
 		stop(provider);
@@ -130,15 +131,18 @@ bool HoRNDIS::start(IOService *provider) {
 		goto bailout;
 	}
 
-	if (!openInterfaces())
+	if (!openInterfaces()) {
 		goto bailout;
+	}
 	
-	if (!rndisInit())
+	if (!rndisInit()) {
 		goto bailout;
+	}
 	
-	/* Looks like everything's good... publish the interface! */
-	if (!createNetworkInterface())
+	// Looks like everything's good... publish the interface!
+	if (!createNetworkInterface()) {
 		goto bailout;
+	}
 	
 	LOG(V_DEBUG, "successful");
 	
@@ -535,8 +539,9 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
 
 bool HoRNDISInterface::init(IONetworkController * controller, int mtu) {
 	maxmtu = mtu;
-	if (IOEthernetInterface::init(controller) == false)
+	if (IOEthernetInterface::init(controller) == false) {
 		return false;
+	}
 	LOG(V_NOTE, "starting up with MTU %d", mtu);
 	setMaxTransferUnit(mtu);
 	return true;
@@ -555,8 +560,9 @@ bool HoRNDISInterface::setMaxTransferUnit(UInt32 mtu) {
 IONetworkInterface *HoRNDIS::createInterface() {
 	HoRNDISInterface * netif = new HoRNDISInterface;
 	
-	if (!netif)
+	if (!netif) {
 		return NULL;
+	}
 	
 	if (!netif->init(this, mtu)) {
 		netif->release();
@@ -569,7 +575,7 @@ IONetworkInterface *HoRNDIS::createInterface() {
 bool HoRNDIS::createNetworkInterface() {
 	LOG(V_DEBUG, "attaching and registering interface");
 	
-	/* MTU is initialized before we get here, so this is a safe time to do this. */
+	// MTU is initialized before we get here, so this is a safe time to do this.
 	if (!attachInterface((IONetworkInterface **)&fNetworkInterface, true)) {
 		LOG(V_ERROR, "attachInterface failed?");	  
 		return false;
@@ -596,39 +602,43 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 		return kIOReturnSuccess;
 	}
 	
-	if (!allocateResources())
+	if (!allocateResources()) {
 		return kIOReturnNoMemory;
+	}
 	
-	if (!fMediumDict)
+	if (!fMediumDict) {
 		if (!createMediumTables()) {
 			rtn = kIOReturnNoMemory;
 			goto bailout;
 		}
+	}
 	setCurrentMedium(IONetworkMedium::medium(kIOMediumEthernetAuto, 480 * 1000000));
 	
-	/* Kick off the first read. */
+	// Kick off the first read.
 	inbuf.comp.target = this;
 	inbuf.comp.action = dataReadComplete;
 	inbuf.comp.parameter = NULL;
 	
 	rtn = fInPipe->Read(inbuf.mdp, &inbuf.comp, NULL);
-	if (rtn != kIOReturnSuccess)
+	if (rtn != kIOReturnSuccess) {
 		goto bailout;
+	}
 
-	/* Tell the world that the link is up... */
+	// Tell the world that the link is up...
 	medium = IONetworkMedium::getMediumWithType(fMediumDict, kIOMediumEthernetAuto);
 	setLinkStatus(kIONetworkLinkActive | kIONetworkLinkValid, medium, 480 * 1000000);
 	
-	/* ... and then listen for packets! */
+	// ... and then listen for packets!
 	getOutputQueue()->setCapacity(TRANSMIT_QUEUE_SIZE);
 	getOutputQueue()->start();
 	LOG(V_DEBUG, "txqueue started");
 	
-	/* Tell the other end to start transmitting. */
-	if (!rndisSetPacketFilter(RNDIS_DEFAULT_FILTER))
+	// Tell the other end to start transmitting.
+	if (!rndisSetPacketFilter(RNDIS_DEFAULT_FILTER)) {
 		goto bailout;
+	}
 	
-	/* Now we can say we're alive. */
+	// Now we can say we're alive.
 	fNetifEnabled = true;
 	
 	LOG(V_DEBUG, "done from tid %p", current_thread());
@@ -644,22 +654,22 @@ bailout:
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	LOG(V_DEBUG, "disable from tid %p", current_thread());
 	
-	/* Disable the queue (no more outputPacket), and then flush everything in the queue. */
+	// Disable the queue (no more outputPacket), and then flush everything in the queue.
 	getOutputQueue()->stop();
 	getOutputQueue()->setCapacity(0);
 	getOutputQueue()->flush();
 	
-	/* Other end should stop xmitting, too. */
+	// Other end should stop xmitting, too.
 	rndisSetPacketFilter(0);
 	
 	setLinkStatus(0, 0);
 	
-	/* Release all resources */
+	// Release all resources
 	releaseResources();
 	
 	fNetifEnabled = false;
 	
-	/* Terminates also close the device in 'disable'. */
+	// Terminates also close the device in 'disable'.
 	if (fTerminate) {
 		fpDevice->close(this);
 		fpDevice = NULL;
@@ -674,15 +684,17 @@ bool HoRNDIS::createMediumTables() {
 	IONetworkMedium	*medium;
 	
 	fMediumDict = OSDictionary::withCapacity(1);
-	if (fMediumDict == NULL)
+	if (fMediumDict == NULL) {
 		return false;
+	}
 	LOG(V_PTR, "PTR: fMediumDict: %p", fMediumDict);
 	
 	medium = IONetworkMedium::medium(kIOMediumEthernetAuto, 480 * 1000000);
 	IONetworkMedium::addMedium(fMediumDict, medium);
 	
-	if (publishMediumDictionary(fMediumDict) != true)
+	if (publishMediumDictionary(fMediumDict) != true) {
 		return false;
+	}
 	
 	return true;
 }
@@ -692,15 +704,16 @@ bool HoRNDIS::allocateResources() {
 	
 	LOG(V_DEBUG, "allocateResources");
 	
-	/* Grab a memory descriptor pointer for data-in. */
+	// Grab a memory descriptor pointer for data-in.
 	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
-	if (!inbuf.mdp)
+	if (!inbuf.mdp) {
 		return false;
-	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp); /* does this i belong here? */
+	}
+	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp); // does this i belong here?
 	inbuf.mdp->setLength(MAX_BLOCK_SIZE);
 	inbuf.buf = (void *)inbuf.mdp->getBytesNoCopy();
 	
-	/* And a handful for data-out... */
+	// And a handful for data-out...
 	LOG(V_DEBUG, "allocating %d buffers", N_OUT_BUFS);
 	outbuf_lock = IOLockAlloc();
 	LOG(V_PTR, "PTR: outbuf_lock: %p", outbuf_lock);
@@ -725,11 +738,12 @@ void HoRNDIS::releaseResources() {
 	
 	LOG(V_DEBUG, "releaseResources");
 	
-	for (i = 0; i < N_OUT_BUFS; i++)
+	for (i = 0; i < N_OUT_BUFS; i++) {
 		if (outbufs[i].mdp) {
 			outbufs[i].mdp->release();
 			outbufs[i].mdp = NULL;
 		}
+	}
 	
 	if (inbuf.mdp) {
 		inbuf.mdp->release();
@@ -749,15 +763,13 @@ IOOutputQueue* HoRNDIS::createOutputQueue() {
 bool HoRNDIS::configureInterface(IONetworkInterface *netif) {
 	IONetworkData *nd;
 	
-	if (super::configureInterface(netif) == false)
-	{
+	if (super::configureInterface(netif) == false) {
 		LOG(V_ERROR, "super failed");
 		return false;
 	}
 	
 	nd = netif->getNetworkData(kIONetworkStatsKey);
-	if (!nd || !(fpNetStats = (IONetworkStats *)nd->getBuffer()))
-	{
+	if (!nd || !(fpNetStats = (IONetworkStats *)nd->getBuffer())) {
 		LOG(V_ERROR, "network statistics buffer unavailable?");
 		return false;
 	}
@@ -773,12 +785,13 @@ bool HoRNDIS::configureInterface(IONetworkInterface *netif) {
 IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const {
 	IOReturn	rtn = kIOReturnSuccess;
 	
-	if (group == gIOEthernetWakeOnLANFilterGroup)
+	if (group == gIOEthernetWakeOnLANFilterGroup) {
 		*filters = 0;
-	else if (group == gIONetworkFilterGroup)
+	} else if (group == gIONetworkFilterGroup) {
 		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast | kIOPacketFilterMulticast | kIOPacketFilterPromiscuous;
-	else
+	} else {
 		rtn = super::getPacketFilters(group, filters);
+	}
 
 	return rtn;
 }
@@ -802,8 +815,9 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	int rv;
 	
 	buf = IOMalloc(RNDIS_CMD_BUF_SZ);
-	if (!buf)
+	if (!buf) {
 		return kIOReturnNoMemory;
+	}
 	
 	rv = rndisQuery(buf, OID_802_3_PERMANENT_ADDRESS, 48, (void **) &bp, &rlen);
 	if (rv < 0) {
@@ -815,17 +829,17 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	      bp[0], bp[1], bp[2], bp[3], bp[4], bp[5],
 	      rlen);
 	
-	for (i=0; i<6; i++)
+	for (i=0; i<6; i++) {
 		ea->bytes[i] = bp[i];
+	}
 	
 	IOFree(buf, RNDIS_CMD_BUF_SZ);
 	return kIOReturnSuccess;
 }
 
 IOReturn HoRNDIS::setPromiscuousMode(bool active) {
-	(void) active;
-	
-	/* XXX This actually needs to get passed down to support 'real' RNDIS devices, but it will work okay for Android devices. */
+	// XXX This actually needs to get passed down to support 'real'
+	//  RNDIS devices, but it will work okay for Android devices.
 	
 	return kIOReturnSuccess;
 }
@@ -874,7 +888,7 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 	case kIOUSBMessagePortHasBeenResumed:
 		LOG(V_NOTE, "kIOUSBMessagePortHasBeenResumed");
 		
-		/* Try to resurrect any dead reads. */
+		// Try to resurrect any dead reads.
 		if (fDataDead) {
 			ior = fInPipe->Read(inbuf.mdp, &inbuf.comp, NULL);
 			if (ior == kIOReturnSuccess)
@@ -910,7 +924,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 
 	LOG(V_DEBUG, "");
 	
-	/* Count the total size of this packet */
+	// Count the total size of this packet
 	m = packet;
 	while (m) {
 		pktlen += mbuf_len(m);
@@ -925,20 +939,22 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 		return false;
 	}
 	
-	/* Find an output buffer in the pool */
+	// Find an output buffer in the pool
 	IOLockLock(outbuf_lock);
 	for (i = 0; i < OUT_BUF_MAX_TRIES; i++) {
 		uint64_t ivl, deadl;
 		
-		for (poolIndx = 0; poolIndx < N_OUT_BUFS; poolIndx++)
+		for (poolIndx = 0; poolIndx < N_OUT_BUFS; poolIndx++) {
 			if (!outbufs[poolIndx].inuse) {
 				outbufs[poolIndx].inuse = true;
 				break;
 			}
-		if (poolIndx != N_OUT_BUFS)
+		}
+		if (poolIndx != N_OUT_BUFS) {
 			break;
+		}
 		
-		/* "while", not "if".  See Symphony X's seminal work on this topic, /Paradise Lost/ (2007). */
+		// "while", not "if".  See Symphony X's seminal work on this topic, /Paradise Lost/ (2007).
 		nanoseconds_to_absolutetime(OUT_BUF_WAIT_TIME, &ivl);
 		clock_absolutetime_interval_to_deadline(ivl, &deadl);
 		LOG(V_NOTE, "waiting for buffer...");
@@ -952,7 +968,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 		return kIOReturnTimeout;
 	}
 	
-	/* Start filling in the send buffer */
+	// Start filling in the send buffer
 	struct rndis_data_hdr *hdr;
 	hdr = (struct rndis_data_hdr *)outbufs[poolIndx].buf;
 	
@@ -969,7 +985,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	
 	freePacket(packet);
 	
-	/* Now, fire it off! */
+	// Now, fire it off!
 	outbufs[poolIndx].comp.target    = this;
 	outbufs[poolIndx].comp.parameter = (void *)poolIndx;
 	outbufs[poolIndx].comp.action    = dataWriteComplete;
@@ -1000,20 +1016,22 @@ void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 rema
 	
 	LOG(V_DEBUG, "(rc %08x, poolIndx %ld)", rc, poolIndx);
 	
-	/* Free the buffer, and hand it off to anyone who might be waiting for one. */
+	// Free the buffer, and hand it off to anyone who might be waiting for one.
 	me->outbufs[poolIndx].inuse = false;
 	IOLockWakeup(me->outbuf_lock, me->outbufs, true);
 	
-	if (rc == kIOReturnSuccess)
+	if (rc == kIOReturnSuccess) {
 		return;
+	}
 	
-	/* Sigh.  Try to clean up. */
+	// Sigh.  Try to clean up.
 	LOG(V_ERROR, "I/O error: %08x", rc);
 		
 	if (rc != kIOReturnAborted) {
 		rc = me->clearPipeStall(me->fOutPipe);
-		if (rc != kIOReturnSuccess)
+		if (rc != kIOReturnSuccess) {
 			LOG(V_ERROR, "clear stall failed (trying to continue)");
+		}
 	}
 }
 
@@ -1044,18 +1062,19 @@ void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 remai
 	}
 	
 	if (rc == kIOReturnSuccess) {
-		/* Got one?  Hand it to the back end. */
+		// Got one?  Hand it to the back end.
 		LOG(V_DEBUG, "%d bytes", (int)(MAX_BLOCK_SIZE - remaining));
 		me->receivePacket(me->inbuf.buf, MAX_BLOCK_SIZE - remaining);
 	} else {
 		LOG(V_ERROR, "dataReadComplete: I/O error: %08x", rc);
 		
 		rc = me->clearPipeStall(me->fInPipe);
-		if (rc != kIOReturnSuccess)
+		if (rc != kIOReturnSuccess) {
 			LOG(V_ERROR, "clear stall failed (trying to continue)");
+		}
 	}
 	
-	/* Queue the next one up. */
+	// Queue the next one up.
 	ior = me->fInPipe->Read(me->inbuf.mdp, &me->inbuf.comp, NULL);
 	if (ior != kIOReturnSuccess) {
 		LOG(V_ERROR, "failed to queue read");
@@ -1096,7 +1115,7 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		data_ofs = le32_to_cpu(hdr->data_offset);
 		data_len = le32_to_cpu(hdr->data_len);
 		
-		if (hdr->msg_type != RNDIS_MSG_PACKET) { /* both are LE, so that's okay */
+		if (hdr->msg_type != RNDIS_MSG_PACKET) { // both are LE, so that's okay
 			LOG(V_ERROR, "non-PACKET over data channel? (msg_type %08x)", hdr->msg_type);
 			return;
 		}
@@ -1151,7 +1170,7 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	if (buf->msg_type != RNDIS_MSG_HALT && buf->msg_type != RNDIS_MSG_RESET) {
 		IOLockLock(xid_lock);
 		
-		/* lock? => Yes */
+		// lock? => Yes
 		buf->request_id = cpu_to_le32(xid++);
 		if (!buf->request_id)
 			buf->request_id = cpu_to_le32(xid++);
@@ -1169,12 +1188,14 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	rq.pData = txdsc;
 	rq.wLength = cpu_to_le32(buf->msg_len);
 		
-	if ((rc = fCommInterface->DeviceRequest(&rq)) != kIOReturnSuccess)
+	if ((rc = fCommInterface->DeviceRequest(&rq)) != kIOReturnSuccess) {
 		goto bailout;
+	}
 	
-	/* Linux polls on the status channel, too; hopefully this shouldn't be needed if we're just talking to Android. */
+	// Linux polls on the status channel, too; hopefully this shouldn't be
+	// needed if we're just talking to Android.
 	
-	/* Now we wait around a while for the device to get back to us. */
+	// Now we wait around a while for the device to get back to us.
 	for (count = 0; count < 10; count++) {
 		struct rndis_msg_hdr *inbuf = (struct rndis_msg_hdr *) rxdsc->getBytesNoCopy();
 		IOUSBDevRequestDesc rxrq;
@@ -1187,8 +1208,9 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		rxrq.pData = rxdsc;
 		rxrq.wLength = RNDIS_CMD_BUF_SZ;
 				
-		if ((rc = fCommInterface->DeviceRequest(&rxrq)) != kIOReturnSuccess)
+		if ((rc = fCommInterface->DeviceRequest(&rxrq)) != kIOReturnSuccess) {
 			goto bailout;
+		}
 		
 		if (rxrq.wLenDone < 8) {
 			LOG(V_ERROR, "short read on control request?");
@@ -1198,10 +1220,11 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		
 		if (inbuf->msg_type == (buf->msg_type | RNDIS_MSG_COMPLETION)) {
 			if (inbuf->request_id == buf->request_id) {
-				if (inbuf->msg_type == RNDIS_MSG_RESET_C)
+				if (inbuf->msg_type == RNDIS_MSG_RESET_C) {
 					break;
+				}
 				if (inbuf->status == RNDIS_STATUS_SUCCESS) {
-					/* ...and copy it out! */
+					// ...and copy it out!
 					LOG(V_DEBUG, "RNDIS command completed");
 					memcpy(buf, inbuf, rxrq.wLenDone);
 					break;
@@ -1268,10 +1291,12 @@ int HoRNDIS::rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, 
 	len = le32_to_cpu(u.get_c->len);
 	LOG(V_DEBUG, "RNDIS query completed");
 	
-	if ((8 + off + len) > 1025)
+	if ((8 + off + len) > 1025) {
 		goto fmterr;
-	if (*reply_len != -1 && len != *reply_len)
+	}
+	if (*reply_len != -1 && len != *reply_len) {
 		goto fmterr;
+	}
 	
 	*reply = ((unsigned char *) &u.get_c->request_id) + off;
 	*reply_len = len;
@@ -1310,9 +1335,13 @@ bool HoRNDIS::rndisInit() {
 		return false;
 	}
 	
-	mtu = (uint32_t)(le32_to_cpu(u.init_c->mtu) - sizeof(struct rndis_data_hdr) - 36 /* hard_header_len on Linux */ - 14 /* ethernet headers */);
-	if (mtu > MAX_MTU)
+	mtu = (uint32_t)(le32_to_cpu(u.init_c->mtu) - sizeof(struct rndis_data_hdr)
+					 - 36  // hard_header_len on Linux
+					 - 14  // ethernet headers
+					 );
+	if (mtu > MAX_MTU) {
 		mtu = MAX_MTU;
+	}
 	LOG(V_NOTE, "their MTU %d", mtu);
 	
 	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
