@@ -4,6 +4,8 @@
  *
  *   Copyright (c) 2012 Joshua Wise.
  *
+ *   Modifications: Copyright (c) 2018 Mikhail Iakhiaev
+ *
  * IOKit examples from Apple's USBCDCEthernet.cpp; not much of that code remains.
  *
  * RNDIS logic is from linux/drivers/net/usb/rndis_host.c, which is:
@@ -28,114 +30,126 @@
 
 #include "HoRNDIS.h"
 
+#include <mach/kmod.h>
 #include <IOKit/IOKitKeys.h>
-#include <IOKit/usb/USBSpec.h>
 
-/* This is only available in the userspace IOKit.framework's usb/IOUSBLib.h, for some reason.  So instead: */
-#define kIOUSBInterfaceClassName  "IOUSBInterface"
+#include <IOKit/usb/IOUSBHostDevice.h>
+#include <IOKit/usb/IOUSBHostInterface.h>
+#include <IOKit/network/IOGatedOutputQueue.h>
+// #include <IOKit/pwr_mgt/RootDomain.h>
 
-#define MYNAME "HoRNDIS"
-#define VERSION "rel8 final"
+
 #define V_PTR 0
-#define V_DEBUG 1
-#define V_NOTE 2
-#define V_ERROR 3
+#define V_PACKET 1
+#define V_DEBUG 2
+#define V_NOTE 3
+#define V_ERROR 4
 
-#define DEBUGLEVEL V_NOTE
-#define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog(MYNAME ": %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
+#define DEBUGLEVEL V_DEBUG
+// V_NOTE
+#define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog("HoRNDIS: %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
 
 #define super IOEthernetController
 
 OSDefineMetaClassAndStructors(HoRNDIS, IOEthernetController);
-OSDefineMetaClassAndStructors(HoRNDISUSBDevice, HoRNDIS);
 OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 
-bool HoRNDIS::init(OSDictionary *properties) {
-	int i;
 
-	LOG(V_NOTE, "HoRNDIS tethering driver for Mac OS X, by Joshua Wise (%s)", VERSION);
+// Detects the 224/1/3 - RNDIS control interface.
+static inline bool isRNDISControlInterface(const InterfaceDescriptor* idesc) {
+	return idesc->bInterfaceClass == 224  // Wireless Controller
+		&& idesc->bInterfaceSubClass == 1  // Radio Frequency
+		&& idesc->bInterfaceProtocol == 3;  // RNDIS protocol
+}
+
+// Detects the class 10 - CDC data interface.
+static inline bool isCDCDataInterface(const InterfaceDescriptor* idesc) {
+	// Check for CDC class. Sub-class and Protocol are undefined:
+	return idesc->bInterfaceClass == 10;
+}
+
+bool HoRNDIS::init(OSDictionary *properties) {
+	extern kmod_info_t kmod_info;  // Getting the version from generated file.
+	LOG(V_NOTE, "HoRNDIS tethering driver for Mac OS X, %s", kmod_info.version);
 	
 	if (super::init(properties) == false) {
-		LOG(V_ERROR, "initialize super failed");
+		LOG(V_ERROR, "initialize superclass failed");
 		return false;
 	}
-	
+
 	LOG(V_PTR, "PTR: I am: %p", this);
 	
 	fNetworkInterface = NULL;
 	fpNetStats = NULL;
 
-	fMediumDict = NULL;
-	
+	fReadyToTransfer = false;
 	fNetifEnabled = false;
+	fEnableDisableInProgress = false;
 	fDataDead = false;
-	
+	fCallbackCount = 0;
+
 	fCommInterface = NULL;
 	fDataInterface = NULL;
 	
 	fInPipe = NULL;
 	fOutPipe = NULL;
-	
-	outbuf_lock = NULL;
-	for (i = 0; i < N_OUT_BUFS; i++) {
+
+	numFreeOutBufs = 0;
+	for (int i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = NULL;
-		outbufs[i].buf = NULL;
-		outbufs[i].inuse = false;
+		outbufStack[i] = i;  // Value does not matter here.
 	}
 	
 	inbuf.mdp = NULL;
-	inbuf.buf = NULL;
-	fpDevice = NULL;
-	
-	xid_lock = IOLockAlloc();
-	xid = 1;
+
+	rndisXid = 1;
+	mtu = 0;
 	
 	return true;
 }
 
-/* IOKit class wrappers */
+void HoRNDIS::free() {
+	LOG(V_DEBUG, ">");
+	// Here, we shall free everything allocated by the 'init'.
 
-bool HoRNDISUSBDevice::start(IOService *provider) {
-	IOUSBDevice *dev;
-	
-	LOG(V_DEBUG, "start, as IOUSBDevice");
-
-	dev = OSDynamicCast(IOUSBDevice, provider);
-	if (!dev) {
-		LOG(V_ERROR, "cast to IOUSBDevice failed?");
-		return false;
-	}
-	
-	fpDevice = dev;
-	
-	return HoRNDIS::start(provider);
+	super::free();
 }
 
 bool HoRNDIS::start(IOService *provider) {
-	LOG(V_DEBUG, "start");
+	LOG(V_DEBUG, ">");
+
+	IOUSBHostInterface *interface = OSDynamicCast(IOUSBHostInterface, provider);
+	if (interface == NULL) {
+		LOG(V_ERROR, "start: BUG we expected IOUSBHostInterface here, but did not get it");
+		return false;
+	}
 	
+	// Per comment in "IONetworkController.h", 'super::start' should be the
+	// first method called in the overridden implementation. It allocates the
+	// network queue for the interface. The rest of the networking
+	// initialization will be done by 'createNetworkInterface', once USB
+	// USB is ready.
 	if(!super::start(provider)) {
 		return false;
 	}
 
-	if (!fpDevice) {
-		stop(provider);
-		return false;
-	}
-
-	fpDevice->retain();
-	if (!fpDevice->open(this)) {
-		LOG(V_ERROR, "could not open the device at all?");
-		fpDevice->release();
-		fpDevice = NULL;
-		goto bailout;
-	}
-
-	if (!openInterfaces()) {
+	if (!openUSBInterfaces(interface)) {
 		goto bailout;
 	}
 	
+	// TODO(mikhailai): 'rndisInit' and from that point on needs more review.
 	if (!rndisInit()) {
+		goto bailout;
+	}
+	
+	LOG(V_DEBUG, "done with RNDIS initialization: can start network interface");
+
+	// Let's create the medium tables here, to avoid doing extra
+	// steps in 'enable'. Also, comments recommend creating medium tables
+	// in the 'setup' stage.
+	const IONetworkMedium *primaryMedium;
+	if (!createMediumTables(&primaryMedium) ||
+		!setCurrentMedium(primaryMedium)) {
 		goto bailout;
 	}
 	
@@ -145,7 +159,6 @@ bool HoRNDIS::start(IOService *provider) {
 	}
 	
 	LOG(V_DEBUG, "successful");
-	
 	return true;
 
 bailout:
@@ -153,384 +166,178 @@ bailout:
 	return false;
 }
 
+bool HoRNDIS::willTerminate(IOService *provider, IOOptionBits options) {
+	LOG(V_DEBUG, ">");
+	// The 'willTerminate' is called when USB device disappears - the user
+	// either disconnected the USB, or switched-off tethering. It's likely
+	// that the pending read has already invoked a callback with unreachable
+	// device or aborted status, and already terminated. If not, closing of
+	// the USB Data interface would force it to abort.
+	//
+	// Note, per comments in 'IOUSBHostInterface.h' (for some later version
+	// of MacOS SDK), this is the recommended place to close USB interfaces.
+	closeUSBInterfaces();
+
+	return super::willTerminate(provider, options);
+}
+
 void HoRNDIS::stop(IOService *provider) {
-	LOG(V_DEBUG, "stop");
+	LOG(V_DEBUG, ">");
 	
-	if (fNetworkInterface) {
-		fNetworkInterface->release();
-		fNetworkInterface = NULL;
-	}
-
-	if (fCommInterface) {
-		fCommInterface->close(this);
-		fCommInterface->release();
-		fCommInterface = NULL;	
-	}
+	OSSafeReleaseNULL(fNetworkInterface);
 	
-	if (fDataInterface) {
-		fDataInterface->close(this);	
-		fDataInterface->release();
-		fDataInterface = NULL;	
-	}
+	closeUSBInterfaces();  // Just in case - supposed to be closed by now.
 
-	if (fpDevice) {
-		fpDevice->close(this);
-		fpDevice->release();
-		fpDevice = NULL;
-	}
-
-	if (fMediumDict) {
-		fMediumDict->release();
-		fMediumDict = NULL;
-	}
-	
-	if (xid_lock) {
-		IOLockFree(xid_lock);
-		xid_lock = NULL;
-	}
-		
 	super::stop(provider);
 }
 
-/* Creating a workloop of our own seems to be necessary on Mac OS X 10.10 --
- * otherwise, we can have not just reentrant calls to HoRNDIS::enable(), but
- * also even to IOEthernetInterface::syncSIOCSIFFLAGS()!  Then, ::enable()
- * "takes a while", which means that on a second call to syncSIOCSIFFLAGS,
- * we get reentrantly invoked, and then -- worse yet -- we fail, and it
- * disables the interface, freeing resources out from under the first
- * ::enable().
- *
- * This "seems to fix it", but it's a workaround for something that I can't
- * possible know, since source for OS X 10.10 does not exist yet.
- *
- * "This would never have happened if Steve Jobs were still CEO."
- */
 
-bool HoRNDIS::createWorkLoop() {
-	LOG(V_DEBUG, "creating workloop");
-	workloop = IOWorkLoop::workLoop();
-	
-	return !!workloop;
+// Convenience function: to retain and assign in one step:
+template <class T> static inline T *retainT(T *ptr) {
+	ptr->retain();
+	return ptr;
 }
 
-IOWorkLoop *HoRNDIS::getWorkLoop() const {
-	return workloop;
+bool HoRNDIS::openUSBInterfaces(IOUSBHostInterface *controlInterface) {
+	// Make sure the the control interface is expected:
+	if (!isRNDISControlInterface(controlInterface->getInterfaceDescriptor())) {
+		LOG(V_ERROR, "BUG: expected control interface as a parameter");
+		return false;
+	}
+	fCommInterface = retainT(controlInterface);
+	if (!fCommInterface->open(this)) {
+		LOG(V_ERROR, "could not open fCommInterface, bailing out");
+		// Release 'comm' interface here, so 'stop' would not try to close it.
+		OSSafeReleaseNULL(fCommInterface);
+		return false;
+	}
+	
+	{  // Now, find the data interface:
+		const uint8_t controlIfNum = fCommInterface->getInterfaceDescriptor()->bInterfaceNumber;
+		IOUSBHostDevice *device = controlInterface->getDevice();
+	
+		OSIterator* iterator = device->getChildIterator(gIOServicePlane);
+		OSObject* candidate = NULL;
+		while(iterator != NULL && (candidate = iterator->getNextObject()) != NULL) {
+			IOUSBHostInterface* interfaceCandidate =
+				OSDynamicCast(IOUSBHostInterface, candidate);
+			if (interfaceCandidate == NULL) {
+				continue;
+			}
+			const InterfaceDescriptor *intDesc = interfaceCandidate->getInterfaceDescriptor();
+			// Note, also make sure data interface follows right after control:
+			if (isCDCDataInterface(intDesc) && intDesc->bInterfaceNumber == controlIfNum + 1) {
+				fDataInterface = retainT(interfaceCandidate);
+				break;
+			}
+		}
+		OSSafeReleaseNULL(iterator);
+	}
+
+	if (!fDataInterface) {
+		LOG(V_ERROR, "could not find the data interface, despite seeing its descriptor");
+		return false;
+	}
+
+	// WARNING, it is a WRONG idea to attach 'fDataInterface' as a second
+	// provider, because both providers would be calling 'willTerminate', and
+	// 'stop' methods, resulting in chaos.
+	
+	if (!fDataInterface->open(this)) {
+		LOG(V_ERROR, "could not open fDataInterface, bailing out");
+		// Release the 'fDataInterface' here, so 'stop' won't try to close it.
+		OSSafeReleaseNULL(fDataInterface);
+		return false;
+	}
+	
+	{  // Get the pipes for the data interface:
+		const EndpointDescriptor *candidate = NULL;
+		const InterfaceDescriptor *intDesc = fDataInterface->getInterfaceDescriptor();
+		const ConfigurationDescriptor *confDesc = fDataInterface->getConfigurationDescriptor();
+		if (intDesc->bNumEndpoints != 2) {
+			LOG(V_ERROR, "Expected 2 endpoints for Data Interface, got: %d", intDesc->bNumEndpoints);
+			return false;
+		}
+		while((candidate = StandardUSB::getNextEndpointDescriptor(
+					confDesc, intDesc, candidate)) != NULL) {
+			const bool isEPIn =
+				(candidate->bEndpointAddress & kEndpointDescriptorDirection) != 0;
+			IOUSBHostPipe *&pipe = isEPIn ? fInPipe : fOutPipe;
+			if (pipe == NULL) {
+				// Note, 'copyPipe' already performs 'retain': must not call it again.
+				pipe = fDataInterface->copyPipe(candidate->bEndpointAddress);
+			}
+		}
+		if (fInPipe == NULL || fOutPipe == NULL) {
+			LOG(V_ERROR, "Could not init IN/OUT pipes in the Data Interface");
+			return false;
+		}
+	}
+	
+	return true;
 }
 
-/***** Matching, interface acquisition, and such. *****/
+void HoRNDIS::closeUSBInterfaces() {
+	fReadyToTransfer = false;  // Interfaces are about to be closed.
+	// Close the interfaces - this would abort the transfers (if present):
+	if (fDataInterface) {
+		fDataInterface->close(this);
+	}
+	if (fCommInterface) {
+		fCommInterface->close(this);
+	}
 
-/* THIS IS NOT A PLACE OF HONOR.
- * NO HIGHLY ESTEEMED DEED IS COMMEMORATED HERE.
- * [...]
- * THIS PLACE IS A MESSAGE AND PART OF A SYSTEM OF MESSAGES.
- * WHAT IS HERE IS DANGEROUS AND REPULSIVE TO US.
- * THIS MESSAGE IS A WARNING ABOUT DANGER.
- * [...]
- * WE CONSIDERED OURSELVES TO BE A POWERFUL CULTURE.
- *
- *   -- excerpted from "Expert Judgment on Markers to Deter Inadvertent
- *      Human Intrusion into the Waste Isolation Pilot Plant", Sandia
- *      National Laboratories report SAND92-1382 / UC-721
- */
-
-/* IOService::waitForMatchingService is kind of a difficult API to use.  We
- * wrap it to wait for a specific matching USB interface.  */
-IOService *HoRNDIS::waitForMatchingUSBInterface(uint32_t cl, uint32_t subcl, uint32_t proto) {
-	OSDictionary *dict;
-	OSDictionary *propertyDict;
-	OSNumber *num;
-	IOService *svc;
-	
-	dict = IOService::serviceMatching(kIOUSBInterfaceClassName);
-	if (!dict)
-		goto nodict;
-	
-	propertyDict = OSDictionary::withCapacity(3);
-	if (!propertyDict)
-		goto noprop;
-	
-	num = OSNumber::withNumber((uint64_t)cl, 32);
-	if (!num)
-		goto nonum;
-	propertyDict->setObject(kUSBInterfaceClass, num);
-	num->release();
-	
-	num = OSNumber::withNumber((uint64_t)subcl, 32);
-	if (!num)
-		goto nonum;
-	propertyDict->setObject(kUSBInterfaceSubClass, num);
-	num->release();
-	
-	num = OSNumber::withNumber((uint64_t)proto, 32);
-	if (!num)
-		goto nonum;
-	propertyDict->setObject(kUSBInterfaceProtocol, num);
-	num->release();
-	
-	dict->setObject(kIOPropertyMatchKey, propertyDict);
-	propertyDict->release();
-	
-	svc = IOService::waitForMatchingService(dict, 1 * 1000000000 /* i.e., 1 sec */);
-	if (!svc)
-		LOG(V_NOTE, "timed out matching a %d/%d/%d", cl, subcl, proto);
-	
-	dict->release();
-	
-	return svc;
-
-nonum:
-	propertyDict->release();
-noprop:
-	dict->release();
-nodict:	
-	LOG(V_ERROR, "low memory error in waitForMatchingUSBInterface(%d, %d, %d)", cl, subcl, proto);
-	return NULL;
+	OSSafeReleaseNULL(fInPipe);
+	OSSafeReleaseNULL(fOutPipe);
+	OSSafeReleaseNULL(fDataInterface);
+	OSSafeReleaseNULL(fCommInterface);  // First one to open, last one to die.
 }
 
-/* There are a great number of truly amazing things about Mac OS X 10.11,
- * and its USB stack.  It's not terribly amazing that they broke break
- * subtle functionality that wasn't really guaranteed to work in the first
- * place.  For instance, subtle race conditions changing their "usual"
- * behavior is agonizing, but I can't really harbor too much hatred in my
- * heart for Apple for that.
- *
- * No, the thing that amazes the most, I think, is that they managed to
- * break overt high-level functionality.  For instance,
- * IOUSBDevice::FindNextInterface sometimes only works if the fields in
- * IOUSBFindInterfaceRequest are set to kIOUSBFindInterfaceDontCare.  If you
- * set bInterfaceClass to something that you care about and call it with a
- * non-NULL initial interface, it might just return NULL instead.  You can
- * go ahead and call it back with don't-cares in the fields...  and then
- * you'll get an interface that matches perfectly.  "Ha ha, sucker, sorry, I
- * lied."
- *
- * So we reimplement it on top of the existing primitive so that we can
- * actually go find an interface that we want.
- */
-IOUSBInterface *HoRNDIS::FindNextMatchingInterface(IOUSBInterface *intf, uint32_t cl, uint32_t subcl, uint32_t proto) {
-	IOUSBFindInterfaceRequest req;
+IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
+	LOG(V_DEBUG, "came in with a score of %d", *score);
 	
-	req.bInterfaceClass    = kIOUSBFindInterfaceDontCare;
-	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
-	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
-	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
-	
-	do
-		intf = fpDevice->FindNextInterface(intf, &req);
-	while (intf && intf->GetInterfaceClass() != cl && intf->GetInterfaceSubClass() != subcl && intf->GetInterfaceProtocol() != proto);
-
-	return intf;
-}
-
-bool HoRNDIS::openInterfaces() {
-	IOReturn rc;
-	IOUSBFindEndpointRequest epReq;
-	IOService *datasvc;
-	
-	/* Set up the device's configuration. */
-	if (fpDevice->SetConfiguration(this, ctrlconfig, true /* start matching */) != kIOReturnSuccess) {
-		LOG(V_ERROR, "failed to set configuration %d?", ctrlconfig);
-		goto bailout0;
+	// Driver matching algorithm: keep it simple for now. Assumptions:
+	//  - Android device has only one USB configuration OR RNDIS interfaces
+	//    would be in the active configuration.
+	// Algorithm:
+	//  - The Info.plist matchies on "224/1/3" - RNDIS control interface.
+	//  - "probe" double-checks that and also makes sure the data interface is present.
+	//  - The "start" can open the required interfaces right away - no need to open
+	//    the device and set the configuration.
+	IOUSBHostInterface *interface = OSDynamicCast(IOUSBHostInterface, provider);
+	if (interface == NULL) {
+		LOG(V_ERROR, "unexpected provider class (wrong Info.plist)");
+		return NULL;
 	}
 	
-	/* Go looking for the comm interface. */
-	datasvc = waitForMatchingUSBInterface(ctrlclass, ctrlsubclass, ctrlprotocol);
-	if (!datasvc) {
-		LOG(V_ERROR, "control interface: waitForMatchingService(%d, %d, %d) matched nothing?", ctrlclass, ctrlsubclass, ctrlprotocol);
-		goto bailout0;
+	if (!isRNDISControlInterface(interface->getInterfaceDescriptor())) {
+		LOG(V_ERROR, "not RNDIS control interface (wrong Info.plist)");
+		return NULL;
 	}
-
-	fCommInterface = OSDynamicCast(IOUSBInterface, datasvc);
-	if (!fCommInterface) {
-		LOG(V_ERROR, "RNDIS control interface not available?");
-		datasvc->release();
-		goto bailout0;
-	}
-
-	rc = fCommInterface->open(this);
-	if (!rc) {
-		LOG(V_ERROR, "could not open RNDIS control interface?");
-		goto bailout1;
-	}
-	/* fCommInterface has been retained already, since it came from
-	 * waitForMatchingService.  */
+	const uint8_t controlIfNum = interface->getInterfaceDescriptor()->bInterfaceNumber;
 	
-	/* Go looking for the data interface.
-	 *
-	 * This takes a little more doing, since we need the one that comes
-	 * /immediately after/ the fCommInterface -- otherwise, we could end
-	 * up stealing the data interface for, for example, a CDC ACM
-	 * device.  But, the complication is that it might or might not have
-	 * been created yet.  And worse, if it gets created just after we
-	 * look, we might look for it and fail, and then
-	 * waitForMatchingService could *still* fail, because it gets
-	 * created just before waitForMatchingService is called!
-	 *
-	 * The synchronization primitive you are looking for here is called
-	 * a "condition variable".
-	 *
-	 * Grumble.
-	 */
-	int counter;
-	
-	counter = 10;
-	while ((fDataInterface = FindNextMatchingInterface(fCommInterface, 0x0A, 0x00, 0x00)) == NULL && counter--) {
-		datasvc = waitForMatchingUSBInterface(0x0A, 0x00, 0x00 /* req.bInterfaceClass, req.bInterfaceSubClass, req.bInterfaceProtocol */);
-		if (datasvc) {
-			/* We could have a winner, but it might be something
-			 * else.  Let FindNextInterface deal with it for us. 
-			 * Technically we should probably use an interface
-			 * association descriptor, but I don't think that's
-			 * exposed readily, so ...  */
-			datasvc->release();
-		} else {
-			/* Not a winner, and we never will be - it's been a
-			 * whole second!  */
+	// Now, search for data interface: if found, we're done:
+	bool foundData = false;
+	const ConfigurationDescriptor *confDesc = interface->getConfigurationDescriptor();
+	const InterfaceDescriptor* intDesc = NULL;
+	while((intDesc = StandardUSB::getNextInterfaceDescriptor(confDesc, intDesc)) != NULL) {
+		// Just in case an Android device has several CDC data interfaces, we would only
+		// pick the one that follows RIGHT AFTER the RNDIS interface:
+		if (isCDCDataInterface(intDesc) &&
+			intDesc->bInterfaceNumber == controlIfNum + 1) {
+			foundData = true;
 			break;
 		}
 	}
 	
-	if (counter <= 0) {
-		LOG(V_ERROR, "data interface: timed out after ten attempts to find an fDataInterface; waitForMatchingService() gave us something, but FindNextInterface couldn't find it?");
-	}
-
-	/* Deal with that pesky race condition by looking /just once more/. */
-	if (!fDataInterface) {
-		fDataInterface = FindNextMatchingInterface(fCommInterface, 0x0A, 0x00, 0x00);
-	}
-	
-	if (!fDataInterface) {
-		LOG(V_ERROR, "data interface: we never managed to find a friend :(");
-		goto bailout2;
-	}
-	
-	LOG(V_ERROR, "data interface: okay, I got one, and it was a 0x%02x/0x%02x/0x%02x", fDataInterface->GetInterfaceClass(), fDataInterface->GetInterfaceSubClass(), fDataInterface->GetInterfaceProtocol());
-	
-	rc = fDataInterface->open(this);
-	if (!rc) {
-		LOG(V_ERROR, "could not open RNDIS data interface?");
-		goto bailout3;
-	}
-	
-	if (fDataInterface->GetNumEndpoints() < 2) {
-		LOG(V_ERROR, "not enough endpoints on data interface?");
-		goto bailout4;
-	}
-
-	/* Of course, since we got this one from FindNextInterface, not from
-	 * waitForMatchingService, we have to do lifecycle management of
-	 * this thing on our own.
-	 *
-	 * I don't believe that this is safe, but race conditions can be
-	 * avoided by appropriate haste in critical sections, I suppose.
-	 */
-	fDataInterface->retain();
-	
-	/* open up the endpoints */
-	epReq.type = kUSBBulk;
-	epReq.direction = kUSBIn;
-	epReq.maxPacketSize	= 0;
-	epReq.interval = 0;
-	fInPipe = fDataInterface->FindNextPipe(0, &epReq);
-	if (!fInPipe) {
-		LOG(V_ERROR, "no bulk input pipe");
-		goto bailout5;
-	}
-	LOG(V_PTR, "PTR: fInPipe: %p", fInPipe);
-	LOG(V_DEBUG, "bulk input pipe %p: max packet size %d, interval %d", fInPipe, epReq.maxPacketSize, epReq.interval);
-	
-	epReq.direction = kUSBOut;
-	fOutPipe = fDataInterface->FindNextPipe(0, &epReq);
-	if (!fOutPipe) {
-		LOG(V_ERROR, "no bulk output pipe");
-		goto bailout5;
-	}
-	LOG(V_PTR, "PTR: fOutPipe: %p", fOutPipe);
-	LOG(V_DEBUG, "bulk output pipe %p: max packet size %d, interval %d", fOutPipe, epReq.maxPacketSize, epReq.interval);
-	
-	/* Currently, we don't even bother to listen on the interrupt pipe. */
-	
-	/* And we're done!  Wasn't that easy?*/
-	return true;
-	
-bailout5:
-	fDataInterface->release();
-bailout4:
-	fDataInterface->close(this);
-bailout3:
-	fDataInterface = NULL;
-bailout2:
-	fCommInterface->close(this);
-bailout1:
-	fCommInterface->release();
-	fCommInterface = NULL;
-bailout0:
-	/* Show what interfaces we saw. */
-	IOUSBFindInterfaceRequest req;
-
-	req.bInterfaceClass = kIOUSBFindInterfaceDontCare;
-	req.bInterfaceSubClass = kIOUSBFindInterfaceDontCare;
-	req.bInterfaceProtocol = kIOUSBFindInterfaceDontCare;
-	req.bAlternateSetting  = kIOUSBFindInterfaceDontCare;
-	
-	IOUSBInterface *ifc = NULL;
-	LOG(V_ERROR, "openInterfaces: before I fail, here are all the interfaces that I saw, in case you care ...");
-	while ((ifc = fpDevice->FindNextInterface(ifc, &req))) {
-		LOG(V_ERROR, "openInterfaces:   class 0x%02x, subclass 0x%02x, protocol 0x%02x", ifc->GetInterfaceClass(), ifc->GetInterfaceSubClass(), ifc->GetInterfaceProtocol());
-	}
-	
-	return false;
-}
-
-IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
-	LOG(V_NOTE, "probe: came in with a score of %d", *score);
-	IOUSBDevice *dev = OSDynamicCast(IOUSBDevice, provider); /* XXX: error check */
-	
-	/* Do we even have one of the things that we can match on?  If not, return NULL.  Either 2/255/2, or 224/3/1.  */
-	const IOUSBConfigurationDescriptor *cd;
-	
-	cd = dev->GetFullConfigurationDescriptor(0);
-	if (!cd) {
-		LOG(V_ERROR, "probe: failed to get a configuration descriptor for configuration 0?");
+	if (foundData) {
+		*score += 100000;
+		return this;
+	} else {
+		// Did not find any interfaces we can use:
+		LOG(V_DEBUG, "unexpected provider class or parameters: this device is not for us");
 		return NULL;
 	}
-	
-	/* And look for one of the options. */
-	IOUSBInterfaceDescriptor *descout;
-	IOUSBFindInterfaceRequest req;
-	bool found = false;
-	
-	ctrlconfig = cd->bConfigurationValue;
-	
-	req.bInterfaceClass = 2;
-	req.bInterfaceSubClass = 2;
-	req.bInterfaceProtocol = 255;
-	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
-		LOG(V_NOTE, "probe: looks like we're good (2/2/255)");
-		ctrlclass = 2;
-		ctrlsubclass = 2;
-		ctrlprotocol = 255;
-		found = true;
-	}
-
-	req.bInterfaceClass = 224;
-	req.bInterfaceSubClass = 1;
-	req.bInterfaceProtocol = 3;
-	if (dev->FindNextInterfaceDescriptor(cd, NULL, &req, &descout) == kIOReturnSuccess) {
-		ctrlclass = 224;
-		ctrlsubclass = 1;
-		ctrlprotocol = 3;
-		LOG(V_NOTE, "probe: looks like we're good (224/1/3)");
-		found = true;
-	}
-	
-	if (!found) {
-		LOG(V_NOTE, "probe: this composite device is not for us");
-		return NULL;
-	}
-	
-	*score += 10000;
-	return this;
 }
 
 /***** Ethernet interface bits *****/
@@ -542,7 +349,7 @@ bool HoRNDISInterface::init(IONetworkController * controller, int mtu) {
 	if (IOEthernetInterface::init(controller) == false) {
 		return false;
 	}
-	LOG(V_NOTE, "starting up with MTU %d", mtu);
+	LOG(V_NOTE, "(network interface) starting up with MTU %d", mtu);
 	setMaxTransferUnit(mtu);
 	return true;
 }
@@ -558,6 +365,7 @@ bool HoRNDISInterface::setMaxTransferUnit(UInt32 mtu) {
 
 /* Overrides IOEthernetController::createInterface */
 IONetworkInterface *HoRNDIS::createInterface() {
+	LOG(V_DEBUG, ">");
 	HoRNDISInterface * netif = new HoRNDISInterface;
 	
 	if (!netif) {
@@ -588,60 +396,94 @@ bool HoRNDIS::createNetworkInterface() {
 }
 
 /***** Interface enable and disable logic *****/
+HoRNDIS::EnableDisableLocker::EnableDisableLocker(HoRNDIS *inInst)
+		: inst(inInst), result(kIOReturnSuccess) {
+	IOCommandGate *const gate = inst->getCommandGate();
+	bool &statusVar = inst->fEnableDisableInProgress;
+	// Wait until we exit the previously-entered enable or disable method:
+	while (statusVar && !isInterrupted()) {
+		LOG(V_DEBUG, "Delaying the repeated enable/disable call");
+		result = gate->commandSleep(&statusVar);
+	}
+	statusVar = true;  // Mark the entry into enable or disable method.
+}
 
-/* Contains buffer alloc and dealloc, notably.  Why do that here?  Because that's what Apple did. */
+HoRNDIS::EnableDisableLocker::~EnableDisableLocker() {
+	bool &statusVar = inst->fEnableDisableInProgress;
+	statusVar = false;
+	inst->getCommandGate()->commandWakeup(&statusVar);
+}
 
+/* Contains buffer alloc and dealloc, notably.  Why do that here?  
+   Not just because that's what Apple did. We don't want to consume these 
+   resources when the interface is sitting disabled and unused. */
 IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
-	IONetworkMedium	*medium;
 	IOReturn rtn = kIOReturnSuccess;
-	
-	LOG(V_DEBUG, "enable from tid %p", current_thread());
+
+	// TODO(mikhailai): This function needs a better clean-up
+	// in case of errors - probably factor-out some code from 'disable':
+
+	LOG(V_DEBUG, "for interface '%s'", netif->getName());
+	//Toggler entryGuard(&fEnableDisableInProgress);
+	EnableDisableLocker locker(this);
+	if (locker.isInterrupted()) {
+		LOG(V_ERROR, "Waiting interrupted");
+		return locker.getResult();
+	}
 
 	if (fNetifEnabled) {
-		LOG(V_ERROR, "already enabled?");
+		LOG(V_DEBUG, "Repeated enable call: returning success");
 		return kIOReturnSuccess;
 	}
-	
+
+	// TODO(iakhiaev): Do we even need the "callback count"? Seems like methods
+	// such USB closing methods make sure the callbacks are complete anyway.
+
+	if (fCallbackCount != 0) {
+		LOG(V_ERROR, "Invalid state: fCallbackCount(=%d) != 0", fCallbackCount);
+		return kIOReturnError;
+	}
+
 	if (!allocateResources()) {
 		return kIOReturnNoMemory;
 	}
-	
-	if (!fMediumDict) {
-		if (!createMediumTables()) {
-			rtn = kIOReturnNoMemory;
-			goto bailout;
-		}
-	}
-	setCurrentMedium(IONetworkMedium::medium(kIOMediumEthernetAuto, 480 * 1000000));
-	
-	// Kick off the first read.
-	inbuf.comp.target = this;
-	inbuf.comp.action = dataReadComplete;
-	inbuf.comp.parameter = NULL;
-	
-	rtn = fInPipe->Read(inbuf.mdp, &inbuf.comp, NULL);
-	if (rtn != kIOReturnSuccess) {
-		goto bailout;
-	}
 
-	// Tell the world that the link is up...
-	medium = IONetworkMedium::getMediumWithType(fMediumDict, kIOMediumEthernetAuto);
-	setLinkStatus(kIONetworkLinkActive | kIONetworkLinkValid, medium, 480 * 1000000);
-	
-	// ... and then listen for packets!
-	getOutputQueue()->setCapacity(TRANSMIT_QUEUE_SIZE);
-	getOutputQueue()->start();
-	LOG(V_DEBUG, "txqueue started");
-	
 	// Tell the other end to start transmitting.
 	if (!rndisSetPacketFilter(RNDIS_DEFAULT_FILTER)) {
 		goto bailout;
 	}
+
+	// We can now perform reads and writes between Network stack and USB device:
+	fReadyToTransfer = true;
 	
+	// Kick off the first read.
+	inbuf.comp.owner = this;
+	inbuf.comp.action = dataReadComplete;
+	inbuf.comp.parameter = NULL;
+	
+	rtn = fInPipe->io(inbuf.mdp, (uint32_t)inbuf.mdp->getLength(), &inbuf.comp, 0);
+	if (rtn != kIOReturnSuccess) {
+		LOG(V_ERROR, "Failed to start the first read %d\n", rtn);
+		goto bailout;
+	}
+	fCallbackCount++;
+
+	// Tell the world that the link is up...
+	if (!setLinkStatus(kIONetworkLinkActive | kIONetworkLinkValid,
+			getCurrentMedium(), getCurrentMedium()->getSpeed())) {
+		LOG(V_ERROR, "Cannot set link status");
+		rtn = kIOReturnError;
+		goto bailout;
+	}
+
+	// ... and then listen for packets!
+	getOutputQueue()->setCapacity(TRANSMIT_QUEUE_SIZE);
+	getOutputQueue()->start();
+	LOG(V_DEBUG, "txqueue started");
+
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	
-	LOG(V_DEBUG, "done from tid %p", current_thread());
+	LOG(V_DEBUG, "done for interface: '%s'", netif->getName());
 	
 	return kIOReturnSuccess;
 	
@@ -650,74 +492,119 @@ bailout:
 	releaseResources();
 	return rtn;
 }
- 
+
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
-	LOG(V_DEBUG, "disable from tid %p", current_thread());
-	
-	// Disable the queue (no more outputPacket), and then flush everything in the queue.
+	LOG(V_DEBUG, "for interface: '%s'", netif->getName());
+	// TODO(mikhailai): Finish writing the comment:
+	// Disable Algorithm:
+	// When we get here, we may be in either of the two situations:
+	// 1. We get here after 'willTerminate' call, when USB interfaces have
+	//    already been closed.
+	// 2. ... (TBW) ....
+
+	EnableDisableLocker locker(this);
+	if (locker.isInterrupted()) {
+		LOG(V_ERROR, "Waiting interrupted");
+		return locker.getResult();
+	}
+
+	if (!fNetifEnabled) {
+		LOG(V_DEBUG, "Repeated call");
+		return kIOReturnSuccess;
+	}
+
+	// Disable the queue (no more outputPacket),
+	// and then flush everything in the queue.
 	getOutputQueue()->stop();
 	getOutputQueue()->setCapacity(0);
 	getOutputQueue()->flush();
+
+	// Stop the the new transfers. The code below would cancel the pending ones:
+	fReadyToTransfer = false;
+
+	// TODO(mikhailai): Repeated enable/disable (ifconfig up/down) does not work: investigate!
 	
-	// Other end should stop xmitting, too.
-	rndisSetPacketFilter(0);
-	
+	// If USB interfaces are still up, abort the reader and writer:
+	if (fInPipe) {
+		fInPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
+			kIOReturnAborted, this);
+		fInPipe->clearStall(false);
+	}
+	if (fOutPipe) {
+		fOutPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
+			kIOReturnAborted, this);
+		fOutPipe->clearStall(false);
+	}
+
 	setLinkStatus(0, 0);
+
+	// If the device has not been disconnected, ask it to stop xmitting:
+	if (fCommInterface) {
+		rndisSetPacketFilter(0);
+	}
 	
 	// Release all resources
 	releaseResources();
-	
-	fNetifEnabled = false;
-	
-	// Terminates also close the device in 'disable'.
-	if (fTerminate) {
-		fpDevice->close(this);
-		fpDevice = NULL;
+
+	// TODO(mikhailai): check if we really need this - maybe the USB APIs can
+	// make sure the callbacks are terminated.
+	// Currently, this is useful when 'disable' is called without USB
+	// disconnect, e.g. using "sudo ifconfig en5 down".
+	LOG(V_DEBUG, "Callback count: %d. If not zero, delaying ...",
+		fCallbackCount);
+	while (fCallbackCount > 0) {
+		// No timeout: in our callbacks we trust!
+		getCommandGate()->commandSleep(&fCallbackCount);
 	}
-	
-	LOG(V_DEBUG, "done from tid %p", current_thread());
+
+	fNetifEnabled = false;
+	LOG(V_DEBUG, "done for interface: %s", netif->getName());
 
 	return kIOReturnSuccess;
 }
 
-bool HoRNDIS::createMediumTables() {
+bool HoRNDIS::createMediumTables(const IONetworkMedium **primary) {
 	IONetworkMedium	*medium;
 	
-	fMediumDict = OSDictionary::withCapacity(1);
-	if (fMediumDict == NULL) {
+	OSDictionary *mediumDict = OSDictionary::withCapacity(1);
+	if (mediumDict == NULL) {
+		LOG(V_ERROR, "Cannot allocate OSDictionary");
 		return false;
 	}
-	LOG(V_PTR, "PTR: fMediumDict: %p", fMediumDict);
 	
 	medium = IONetworkMedium::medium(kIOMediumEthernetAuto, 480 * 1000000);
-	IONetworkMedium::addMedium(fMediumDict, medium);
-	
-	if (publishMediumDictionary(fMediumDict) != true) {
-		return false;
+	IONetworkMedium::addMedium(mediumDict, medium);
+	medium->release();  // 'mediumDict' holds a ref now.
+	if (primary) {
+		*primary = medium;
 	}
 	
-	return true;
+	bool result = publishMediumDictionary(mediumDict);
+	if (!result) {
+		LOG(V_ERROR, "Cannot publish medium dictionary!");
+	}
+
+	// Per comment for 'publishMediumDictionary' in NetworkController.h, the
+	// medium dictionary is copied and may be safely relseased after the call.
+	mediumDict->release();
+	
+	return result;
 }
 
 bool HoRNDIS::allocateResources() {
-	int i;
-	
-	LOG(V_DEBUG, "allocateResources");
+	LOG(V_DEBUG, "Allocating buffers (1 input, %d output), %d bytes each",
+		N_OUT_BUFS, MAX_BLOCK_SIZE);
 	
 	// Grab a memory descriptor pointer for data-in.
 	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
 	if (!inbuf.mdp) {
 		return false;
 	}
-	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp); // does this i belong here?
+	LOG(V_PTR, "PTR: inbuf.mdp: %p", inbuf.mdp);
 	inbuf.mdp->setLength(MAX_BLOCK_SIZE);
-	inbuf.buf = (void *)inbuf.mdp->getBytesNoCopy();
 	
 	// And a handful for data-out...
-	LOG(V_DEBUG, "allocating %d buffers", N_OUT_BUFS);
-	outbuf_lock = IOLockAlloc();
-	LOG(V_PTR, "PTR: outbuf_lock: %p", outbuf_lock);
-	for (i = 0; i < N_OUT_BUFS; i++) {
+	for (int i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionOut);
 		if (!outbufs[i].mdp) {
 			LOG(V_ERROR, "allocate output descriptor failed");
@@ -726,41 +613,41 @@ bool HoRNDIS::allocateResources() {
 		LOG(V_PTR, "PTR: outbufs[%d].mdp: %p", i, outbufs[i].mdp);
 		
 		outbufs[i].mdp->setLength(MAX_BLOCK_SIZE);
-		outbufs[i].buf = (UInt8*)outbufs[i].mdp->getBytesNoCopy();
-		outbufs[i].inuse = false;
+		outbufStack[i] = i;
 	}
+	numFreeOutBufs = N_OUT_BUFS;
 	
 	return true;
 }
 
 void HoRNDIS::releaseResources() {
-	int i;
-	
 	LOG(V_DEBUG, "releaseResources");
-	
-	for (i = 0; i < N_OUT_BUFS; i++) {
-		if (outbufs[i].mdp) {
-			outbufs[i].mdp->release();
-			outbufs[i].mdp = NULL;
-		}
+
+	fReadyToTransfer = false;  // No transfers without buffers.
+	for (int i = 0; i < N_OUT_BUFS; i++) {
+		OSSafeReleaseNULL(outbufs[i].mdp);
+		outbufStack[i] = i;
 	}
+	numFreeOutBufs = 0;
 	
-	if (inbuf.mdp) {
-		inbuf.mdp->release();
-		inbuf.mdp = NULL;
-	}
-	
-	if (outbuf_lock) {
-		IOLockFree(outbuf_lock);
-		outbuf_lock = NULL;
-	}
+	OSSafeReleaseNULL(inbuf.mdp);
 }
 
 IOOutputQueue* HoRNDIS::createOutputQueue() {
-	return IOBasicOutputQueue::withTarget(this, TRANSMIT_QUEUE_SIZE);
+	LOG(V_DEBUG, ">");
+	// The gated Output Queue keeps things simple: everything is
+	// serialized, no need to worry about locks or concurrency.
+	// The device is not very fast, so the serial execution should be more
+	// than capable of keeping up.
+	// Note, if we ever switch to non-gated queue, we shall update the
+	// 'outputPacket' to access the shared state using locks + update all the
+	// other users of that state + may want to use locks for USB calls as well.
+	return IOGatedOutputQueue::withTarget(this,
+		getWorkLoop(), TRANSMIT_QUEUE_SIZE);
 }
 
 bool HoRNDIS::configureInterface(IONetworkInterface *netif) {
+	LOG(V_DEBUG, ">");
 	IONetworkData *nd;
 	
 	if (super::configureInterface(netif) == false) {
@@ -788,7 +675,10 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 	if (group == gIOEthernetWakeOnLANFilterGroup) {
 		*filters = 0;
 	} else if (group == gIONetworkFilterGroup) {
-		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast | kIOPacketFilterMulticast | kIOPacketFilterPromiscuous;
+		// We don't want to support multicast broadcast, promiscuous,
+		// or other additional features.
+		*filters = kIOPacketFilterUnicast;
+		// | kIOPacketFilterBroadcast | kIOPacketFilterMulticast | kIOPacketFilterPromiscuous;
 	} else {
 		rtn = super::getPacketFilters(group, filters);
 	}
@@ -802,12 +692,14 @@ IOReturn HoRNDIS::getMaxPacketSize(UInt32 * maxSize) const {
 }
 
 IOReturn HoRNDIS::selectMedium(const IONetworkMedium *medium) {
+	LOG(V_DEBUG, ">");
 	setSelectedMedium(medium);
 	
 	return kIOReturnSuccess;
 }
 
 IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
+	LOG(V_DEBUG, ">");
 	UInt32	  i;
 	void *buf;
 	unsigned char *bp;
@@ -818,6 +710,9 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	if (!buf) {
 		return kIOReturnNoMemory;
 	}
+
+	// TODO(iakhiaev): The function is broken: it returns a different sequence
+	// every time: need to investigate.
 	
 	rv = rndisQuery(buf, OID_802_3_PERMANENT_ADDRESS, 48, (void **) &bp, &rlen);
 	if (rv < 0) {
@@ -837,6 +732,9 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	return kIOReturnSuccess;
 }
 
+// TODO(mikhailai): Test and possibly fix suspend and resume.
+
+/*
 IOReturn HoRNDIS::setPromiscuousMode(bool active) {
 	// XXX This actually needs to get passed down to support 'real'
 	//  RNDIS devices, but it will work okay for Android devices.
@@ -845,8 +743,7 @@ IOReturn HoRNDIS::setPromiscuousMode(bool active) {
 }
 
 IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
-	IOReturn	ior;
-	
+	//IOReturn	ior;
 	switch (type) {
 	case kIOMessageServiceIsTerminated:
 		LOG(V_NOTE, "kIOMessageServiceIsTerminated");
@@ -905,76 +802,63 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 		LOG(V_NOTE, "kIOMessageServiceIsAttemptingOpen");
 		break;
 	default:
+		LOG(V_ERROR, ">>>>>>>>> Possibly un-updated messages!!!");
 		LOG(V_NOTE, "unknown message type %08x", (unsigned int) type);
 		break;
 	}
-	
-	return kIOReturnUnsupported;
+
+	LOG(V_ERROR, "###################### Received the message: %d, ", type);
+	return super::message(type, provider, argument);
 }
+*/
 
 
 /***** Packet transmit logic *****/
 
 UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
-	mbuf_t m;
-	size_t pktlen = 0;
 	IOReturn ior = kIOReturnSuccess;
-	UInt32 poolIndx;
-	int i;
+	int poolIndx = N_OUT_BUFS;
 
-	LOG(V_DEBUG, "");
+	// Note, this function MAY or MAY NOT be protected by the IOCommandGate,
+	// depending on the kind of OutputQueue used.
+	// Here, we assume that IOCommandGate is used: no need to lock.
 	
 	// Count the total size of this packet
-	m = packet;
-	while (m) {
+	size_t pktlen = 0;
+	for (mbuf_t m = packet; m; m = mbuf_next(m)) {
 		pktlen += mbuf_len(m);
-		m = mbuf_next(m);
 	}
 	
-	LOG(V_DEBUG, "%ld bytes", pktlen);
+	LOG(V_PACKET, "%ld bytes", pktlen);
 	
 	if (pktlen > (mtu + 14)) {
 		LOG(V_ERROR, "packet too large (%ld bytes, but I told you you could have %d!)", pktlen, mtu);
 		fpNetStats->outputErrors++;
-		return false;
+		freePacket(packet);
+		return kIOReturnOutputDropped;
 	}
-	
-	// Find an output buffer in the pool
-	IOLockLock(outbuf_lock);
-	for (i = 0; i < OUT_BUF_MAX_TRIES; i++) {
-		uint64_t ivl, deadl;
-		
-		for (poolIndx = 0; poolIndx < N_OUT_BUFS; poolIndx++) {
-			if (!outbufs[poolIndx].inuse) {
-				outbufs[poolIndx].inuse = true;
-				break;
-			}
-		}
-		if (poolIndx != N_OUT_BUFS) {
-			break;
-		}
-		
-		// "while", not "if".  See Symphony X's seminal work on this topic, /Paradise Lost/ (2007).
-		nanoseconds_to_absolutetime(OUT_BUF_WAIT_TIME, &ivl);
-		clock_absolutetime_interval_to_deadline(ivl, &deadl);
-		LOG(V_NOTE, "waiting for buffer...");
-		
-		IOLockSleepDeadline(outbuf_lock, outbufs, *(AbsoluteTime *)&deadl, THREAD_INTERRUPTIBLE);
+
+	if (numFreeOutBufs <= 0) {
+		LOG(V_ERROR, "BUG: Ran out of buffers - stall did not work!");
+		// Stall the queue and re-try the same packet later: don't release:
+		return kIOOutputStatusRetry | kIOOutputCommandStall;
 	}
-	IOLockUnlock(outbuf_lock);
-	
-	if (poolIndx == N_OUT_BUFS) {
-		LOG(V_ERROR, "timed out waiting for buffer");
-		return kIOReturnTimeout;
+
+	// Note, we don't decrement 'numFreeOutBufs' (commit to using that buffer)
+	// until everything is successful.
+	poolIndx = outbufStack[numFreeOutBufs - 1];
+	if (poolIndx < 0 || poolIndx >= N_OUT_BUFS) {
+		LOG(V_ERROR, "BUG: poolIndex out-of-bounds");
+		freePacket(packet);
+		return kIOReturnOutputDropped;
 	}
-	
+
 	// Start filling in the send buffer
 	struct rndis_data_hdr *hdr;
-	hdr = (struct rndis_data_hdr *)outbufs[poolIndx].buf;
-	
-	outbufs[poolIndx].inuse = true;
-	
-	outbufs[poolIndx].mdp->setLength(pktlen + sizeof *hdr);
+	hdr = (struct rndis_data_hdr *)outbufs[poolIndx].mdp->getBytesNoCopy();
+
+	const uint32_t transmitLength = (uint32_t)(pktlen + sizeof(*hdr));
+	outbufs[poolIndx].mdp->setLength(transmitLength);
 	
 	memset(hdr, 0, sizeof *hdr);
 	hdr->msg_type = RNDIS_MSG_PACKET;
@@ -984,117 +868,162 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	mbuf_copydata(packet, 0, pktlen, hdr + 1);
 	
 	freePacket(packet);
+	packet = NULL;
 	
 	// Now, fire it off!
-	outbufs[poolIndx].comp.target    = this;
-	outbufs[poolIndx].comp.parameter = (void *)poolIndx;
-	outbufs[poolIndx].comp.action    = dataWriteComplete;
+	IOUSBHostCompletion *const comp = &outbufs[poolIndx].comp;
+	comp->owner     = this;
+	comp->parameter = (void *)(uintptr_t)poolIndx;
+	comp->action    = dataWriteComplete;
 	
-	ior = fOutPipe->Write(outbufs[poolIndx].mdp, &outbufs[poolIndx].comp);
+	ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
 	if (ior != kIOReturnSuccess) {
 		LOG(V_ERROR, "write failed");
-		if (ior == kIOUSBPipeStalled) {
-			fOutPipe->Reset();
-			ior = fOutPipe->Write(outbufs[poolIndx].mdp, &outbufs[poolIndx].comp);
+		if (ior == kUSBHostReturnPipeStalled) {
+			fOutPipe->clearStall(false);
+			ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
 			if (ior != kIOReturnSuccess) {
-				LOG(V_ERROR, "write really failed");
+				LOG(V_ERROR, "write re-try failed as well");
 				fpNetStats->outputErrors++;
-				return ior;
+				// Packet was already freed: just quit:
+				return kIOReturnOutputDropped;
 			}
 		}
 	}
+	// Only here - when 'fOutPipe->io' has fired - we mark the buffer in-use:
+	numFreeOutBufs--;
+	fCallbackCount++;
 	fpNetStats->outputPackets++;
-	
-	return kIOReturnOutputSuccess;
+	// If we ran out of free buffers, issue a stall command to the queue.
+	// Note, this would be "we accept this packet, but don't give us more yet",
+	// which is NOT the same as 'kIOReturnOutputStall'.
+	const bool stallQueue = (numFreeOutBufs == 0);
+	if (stallQueue) {
+		LOG(V_DEBUG, "Issuing stall command to the output queue");
+	}
+	return kIOOutputStatusAccepted |
+		(stallQueue ? kIOOutputCommandStall : kIOOutputCommandNone);
 }
 
-void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 remaining) {
+static inline bool isTransferStopStatus(IOReturn rc) {
+	// IOReturn indicating that we need to stop transfers:
+	return rc == kIOReturnAborted || rc == kIOReturnNotResponding;
+}
+
+void HoRNDIS::callbackExit() {
+	fCallbackCount--;
+	// Notify the 'disable' that may be waiting for callback count to reach 0:
+	if (fCallbackCount <= 0) {
+		LOG(V_DEBUG, "Notifying last callback exited");
+		getCommandGate()->commandWakeup(&fCallbackCount);
+	}
+}
+
+void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 transferred) {
 	HoRNDIS	*me = (HoRNDIS *)obj;
 	unsigned long poolIndx = (unsigned long)param;
 	
 	poolIndx = (unsigned long)param;
-	
-	LOG(V_DEBUG, "(rc %08x, poolIndx %ld)", rc, poolIndx);
-	
-	// Free the buffer, and hand it off to anyone who might be waiting for one.
-	me->outbufs[poolIndx].inuse = false;
-	IOLockWakeup(me->outbuf_lock, me->outbufs, true);
-	
-	if (rc == kIOReturnSuccess) {
+
+	LOG(V_PACKET, "(rc %08x, poolIndx %ld)", rc, poolIndx);
+	// Callback completed. We don't know when/if we launch another one:
+	me->callbackExit();
+
+	// Note, if 'fReadyToTransfer' is false, we shall not go further:
+	// it's a good idea NOT to touch the 'outbufs'.
+	if (isTransferStopStatus(rc) || !me->fReadyToTransfer) {
+		LOG(V_DEBUG, "Data Write Aborted, or ready-to-transfer is cleared.");
 		return;
 	}
-	
-	// Sigh.  Try to clean up.
-	LOG(V_ERROR, "I/O error: %08x", rc);
-		
-	if (rc != kIOReturnAborted) {
-		rc = me->clearPipeStall(me->fOutPipe);
+
+	if (rc != kIOReturnSuccess) {
+		// Sigh.  Try to clean up.
+		LOG(V_ERROR, "I/O error: %08x", rc);
+		maybeClearPipeStall(rc, me->fOutPipe);
+	}
+
+	// Free the buffer: put the index back onto the stack:
+	if (me->numFreeOutBufs >= N_OUT_BUFS) {
+		LOG(V_ERROR, "BUG: more free buffers than was allocated");
+		return;
+	}
+
+	me->outbufStack[me->numFreeOutBufs] = poolIndx;
+	me->numFreeOutBufs++;
+	if (me->numFreeOutBufs == N_OUT_BUFS_UNSTALL) {
+		// Maybe un-stall the queue:
+		// Per header comment, calling this on un-stalled queue is harmless,
+		// so just call this whenever we cross the UNSTALL watermark:
+		me->getOutputQueue()->service();
+	}
+}
+
+void HoRNDIS::maybeClearPipeStall(IOReturn rc, IOUSBHostPipe *thePipe) {
+	if (rc == kUSBHostReturnPipeStalled) {
+		rc = thePipe->clearStall(true);
 		if (rc != kIOReturnSuccess) {
 			LOG(V_ERROR, "clear stall failed (trying to continue)");
 		}
 	}
 }
 
-IOReturn HoRNDIS::clearPipeStall(IOUSBPipe *thePipe) {
-	IOReturn rc;
-	
-	if (thePipe->GetPipeStatus() != kIOUSBPipeStalled) {
-		LOG(V_ERROR, "pipe not stalled?");
-		return kIOReturnSuccess;
-	}
-	
-	rc = thePipe->ClearPipeStall(true);
-	LOG(V_ERROR, "pipe stall clear: rv %08x", rc);
-	
-	return rc;
-}
-
-
 /***** Packet receive logic *****/
-
-void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 remaining) {
+void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 transferred) {
 	HoRNDIS	*me = (HoRNDIS *)obj;
 	IOReturn ior;
-	
-	if (rc == kIOReturnAborted || rc == kIOReturnNotResponding) {
-		LOG(V_ERROR, "I/O aborted: device unplugged?");
+
+	// Stop conditions. Not separating them out, since reacting to individual
+	// ones would be very timing-sansitive.
+	if (isTransferStopStatus(rc) || !me->fReadyToTransfer) {
+		LOG(V_DEBUG, "READER STOPPED: USB device aborted or not responding, "
+			"or 'fReadyToTransfer' flag is cleared.");
+		me->callbackExit();
 		return;
 	}
 	
 	if (rc == kIOReturnSuccess) {
 		// Got one?  Hand it to the back end.
-		LOG(V_DEBUG, "%d bytes", (int)(MAX_BLOCK_SIZE - remaining));
-		me->receivePacket(me->inbuf.buf, MAX_BLOCK_SIZE - remaining);
+		LOG(V_PACKET, "%d bytes", transferred);
+		me->receivePacket(me->inbuf.mdp->getBytesNoCopy(), transferred);
 	} else {
 		LOG(V_ERROR, "dataReadComplete: I/O error: %08x", rc);
-		
-		rc = me->clearPipeStall(me->fInPipe);
-		if (rc != kIOReturnSuccess) {
-			LOG(V_ERROR, "clear stall failed (trying to continue)");
-		}
+		maybeClearPipeStall(rc, me->fInPipe);
 	}
 	
 	// Queue the next one up.
-	ior = me->fInPipe->Read(me->inbuf.mdp, &me->inbuf.comp, NULL);
-	if (ior != kIOReturnSuccess) {
-		LOG(V_ERROR, "failed to queue read");
-		if (ior == kIOUSBPipeStalled) {
-			me->fInPipe->Reset();
-			ior = me->fInPipe->Read(me->inbuf.mdp, &me->inbuf.comp, NULL);
-			if (ior != kIOReturnSuccess) {
-				LOG(V_ERROR, "failed, read dead");
-				me->fDataDead = true;
-			}
+	ior = me->fInPipe->io(me->inbuf.mdp, (uint32_t)me->inbuf.mdp->getLength(),
+						&me->inbuf.comp);
+	if (ior == kIOReturnSuccess) {
+		return;  // Callback is in-progress.
+	}
+
+	LOG(V_ERROR, "failed to queue read: %08x", ior);
+	if (ior == kUSBHostReturnPipeStalled) {
+		me->fInPipe->clearStall(false);
+		// Try to read again:
+		ior = me->fInPipe->io(me->inbuf.mdp, (uint32_t)me->inbuf.mdp->getLength(),
+							&me->inbuf.comp);
+		if (ior == kIOReturnSuccess) {
+			return;  // Callback is finally working!
 		}
 	}
+
+	LOG(V_ERROR, "READER STOPPED: USB FAILURE, cannot recover");
+	me->callbackExit();
+	me->fDataDead = true;
 }
 
+/*!
+ * Transfer the packet we've received to the MAC OS Network stack.
+ */
 void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 	mbuf_t m;
 	UInt32 submit;
 	IOReturn rv;
 	
-	LOG(V_DEBUG, "sz %d", (int)size);
+	LOG(V_PACKET, "packet sz %d", (int)size);
+
+	// TODO(iakhiaev): Something fishy going on here: packet drops!!
 	
 	if (size > MAX_BLOCK_SIZE) {
 		LOG(V_ERROR, "packet size error, packet dropped");
@@ -1147,7 +1076,7 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		}
 
 		submit = fNetworkInterface->inputPacket(m, data_len);
-		LOG(V_DEBUG, "submitted pkt sz %d", data_len);
+		LOG(V_PACKET, "submitted pkt sz %d", data_len);
 		fpNetStats->inputPackets++;
 		
 		size -= msg_len;
@@ -1158,90 +1087,93 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 
 /***** RNDIS command logic *****/
 
-int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
-	int count;
+IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	int rc = kIOReturnSuccess;
-	IOUSBDevRequestDesc rq;
-	IOBufferMemoryDescriptor *txdsc = IOBufferMemoryDescriptor::withCapacity(le32_to_cpu(buf->msg_len), kIODirectionOut);
-	LOG(V_PTR, "PTR: txdsc: %p", txdsc);
-	IOBufferMemoryDescriptor *rxdsc = IOBufferMemoryDescriptor::withCapacity(RNDIS_CMD_BUF_SZ, kIODirectionIn);
+	const uint8_t ifNum = fCommInterface->getInterfaceDescriptor()->bInterfaceNumber;
+
+	// TODO(mikhailai): Get rid of this: copy back directly to our buffer.
+	IOBufferMemoryDescriptor *rxdsc =
+		IOBufferMemoryDescriptor::withCapacity(RNDIS_CMD_BUF_SZ, kIODirectionIn);
 	LOG(V_PTR, "PTR: rxdsc: %p", rxdsc);
 
 	if (buf->msg_type != RNDIS_MSG_HALT && buf->msg_type != RNDIS_MSG_RESET) {
-		IOLockLock(xid_lock);
-		
-		// lock? => Yes
-		buf->request_id = cpu_to_le32(xid++);
-		if (!buf->request_id)
-			buf->request_id = cpu_to_le32(xid++);
-		
-		IOLockUnlock(xid_lock);
-		
-		LOG(V_DEBUG, "Generated xid: %d", xid);
-	}
-		
-	memcpy(txdsc->getBytesNoCopy(), buf, le32_to_cpu(buf->msg_len));
-	rq.bRequest = USB_CDC_SEND_ENCAPSULATED_COMMAND;
-	rq.bmRequestType = USBmakebmRequestType(kUSBOut, kUSBClass, kUSBInterface);
-	rq.wValue = 0;
-	rq.wIndex = fCommInterface->GetInterfaceNumber();
-	rq.pData = txdsc;
-	rq.wLength = cpu_to_le32(buf->msg_len);
-		
-	if ((rc = fCommInterface->DeviceRequest(&rq)) != kIOReturnSuccess) {
-		goto bailout;
-	}
-	
-	// Linux polls on the status channel, too; hopefully this shouldn't be
-	// needed if we're just talking to Android.
-	
-	// Now we wait around a while for the device to get back to us.
-	for (count = 0; count < 10; count++) {
-		struct rndis_msg_hdr *inbuf = (struct rndis_msg_hdr *) rxdsc->getBytesNoCopy();
-		IOUSBDevRequestDesc rxrq;
-		
-		memset(inbuf, 0, RNDIS_CMD_BUF_SZ);
-		rxrq.bRequest = USB_CDC_GET_ENCAPSULATED_RESPONSE;
-		rxrq.bmRequestType = USBmakebmRequestType(kUSBIn, kUSBClass, kUSBInterface);
-		rxrq.wValue = 0;
-		rxrq.wIndex = fCommInterface->GetInterfaceNumber();
-		rxrq.pData = rxdsc;
-		rxrq.wLength = RNDIS_CMD_BUF_SZ;
-				
-		if ((rc = fCommInterface->DeviceRequest(&rxrq)) != kIOReturnSuccess) {
-			goto bailout;
+		// No need to lock here: multi-threading does not even come close
+		// (IOWorkLoop + IOGate are at our service):
+		buf->request_id = cpu_to_le32(rndisXid++);
+		if (!buf->request_id) {
+			buf->request_id = cpu_to_le32(rndisXid++);
 		}
 		
-		if (rxrq.wLenDone < 8) {
+		LOG(V_DEBUG, "Generated xid: %d", le32_to_cpu(buf->request_id));
+	}
+	
+	{
+		DeviceRequest rq;
+		rq.bmRequestType = kDeviceRequestDirectionOut |
+			kDeviceRequestTypeClass | kDeviceRequestRecipientInterface;
+		rq.bRequest = USB_CDC_SEND_ENCAPSULATED_COMMAND;
+		rq.wValue = 0;
+		rq.wIndex = ifNum;
+		rq.wLength = le32_to_cpu(buf->msg_len);
+	
+		uint32_t bytes_transferred;
+		if ((rc = fCommInterface->deviceRequest(rq, buf, bytes_transferred)) != kIOReturnSuccess ||
+			bytes_transferred != rq.wLength) {
+			LOG(V_DEBUG, "Device request send error");
+			goto bailout;
+		}
+	}
+	
+	// Linux polls on the status channel, too; hopefully this shouldn't be needed if we're just talking to Android.
+	
+	// Now we wait around a while for the device to get back to us.
+	// TODO(mikhailai): Do we need this stupid polling?
+	int count;
+	for (count = 0; count < 10; count++) {
+		struct rndis_msg_hdr *rxbuf = (struct rndis_msg_hdr *) rxdsc->getBytesNoCopy();
+		memset(rxbuf, 0, RNDIS_CMD_BUF_SZ);
+		DeviceRequest rq;
+		rq.bmRequestType = kDeviceRequestDirectionIn |
+			kDeviceRequestTypeClass | kDeviceRequestRecipientInterface;
+		rq.bRequest = USB_CDC_GET_ENCAPSULATED_RESPONSE;
+		rq.wValue = 0;
+		rq.wIndex = ifNum;
+		rq.wLength = RNDIS_CMD_BUF_SZ;
+		
+		uint32_t bytes_transferred;
+		if ((rc = fCommInterface->deviceRequest(rq, rxdsc, bytes_transferred)) != kIOReturnSuccess) {
+			goto bailout;
+		}
+		// TODO(mikhailai): Refactor this all: I think it can be WAY simpler!
+		if (bytes_transferred < 8) {
 			LOG(V_ERROR, "short read on control request?");
 			IOSleep(20);
 			continue;
 		}
 		
-		if (inbuf->msg_type == (buf->msg_type | RNDIS_MSG_COMPLETION)) {
-			if (inbuf->request_id == buf->request_id) {
-				if (inbuf->msg_type == RNDIS_MSG_RESET_C) {
+		if (rxbuf->msg_type == (buf->msg_type | RNDIS_MSG_COMPLETION)) {
+			if (rxbuf->request_id == buf->request_id) {
+				if (rxbuf->msg_type == RNDIS_MSG_RESET_C)
 					break;
-				}
-				if (inbuf->status == RNDIS_STATUS_SUCCESS) {
+				if (rxbuf->status == RNDIS_STATUS_SUCCESS) {
 					// ...and copy it out!
 					LOG(V_DEBUG, "RNDIS command completed");
-					memcpy(buf, inbuf, rxrq.wLenDone);
+					memcpy(buf, rxbuf, bytes_transferred);
 					break;
 				}
-				LOG(V_ERROR, "RNDIS command returned status %08x", inbuf->status);
+				LOG(V_ERROR, "RNDIS command returned status %08x", rxbuf->status);
 				rc = -1;
 				break;
 			} else {
 				LOG(V_ERROR, "RNDIS return had incorrect xid?");
 			}
 		} else {
-			if (inbuf->msg_type == RNDIS_MSG_INDICATE) {
+			if (rxbuf->msg_type == RNDIS_MSG_INDICATE) {
 				LOG(V_ERROR, "unsupported: RNDIS_MSG_INDICATE");	
-			} else if (inbuf->msg_type == RNDIS_MSG_INDICATE) {
+			} else if (rxbuf->msg_type == RNDIS_MSG_INDICATE) {
 				LOG(V_ERROR, "unsupported: RNDIS_MSG_KEEPALIVE");
 			} else {
-				LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x", inbuf->msg_type, inbuf->msg_len);
+				LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x", rxbuf->msg_type, rxbuf->msg_len);
 			}
 		}
 		
@@ -1253,8 +1185,6 @@ int HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	}
 	
 bailout:
-	txdsc->complete();
-	txdsc->release();
 	rxdsc->complete();
 	rxdsc->release();
 	

@@ -4,6 +4,8 @@
  *
  *   Copyright (c) 2012 Joshua Wise.
  *
+ *   Modifications: Copyright (c) 2018 Mikhail Iakhiaev
+ *
  * IOKit examples from Apple's USBCDCEthernet.cpp; not much of that code remains.
  *
  * RNDIS logic is from linux/drivers/net/usb/rndis_host.c, which is:
@@ -32,7 +34,6 @@
 
 #include <IOKit/network/IOEthernetController.h>
 #include <IOKit/network/IOEthernetInterface.h>
-#include <IOKit/network/IOGatedOutputQueue.h>
 
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/assert.h>
@@ -41,16 +42,8 @@
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IOMessage.h>
 
-#include <IOKit/pwr_mgt/RootDomain.h>
-
-#include <IOKit/usb/IOUSBBus.h>
-#include <IOKit/usb/IOUSBNub.h>
-#include <IOKit/usb/IOUSBDevice.h>
-#include <IOKit/usb/IOUSBPipe.h>
-#include <IOKit/usb/USB.h>
-#include <IOKit/usb/IOUSBInterface.h>
-
-#include <UserNotification/KUNCUserNotifications.h>
+#include <IOKit/usb/IOUSBHostFamily.h>
+#include <IOKit/usb/IOUSBHostPipe.h>
 
 extern "C"
 {
@@ -58,17 +51,16 @@ extern "C"
 	#include <sys/mbuf.h>
 }
 
-#define cpu_to_le32(x) (uint32_t)OSSwapHostToLittleInt32(x)
-#define le32_to_cpu(x) (uint32_t)OSSwapLittleToHostInt32(x)
+#define cpu_to_le32(x) OSSwapHostToLittleInt32(x)
+#define le32_to_cpu(x) OSSwapLittleToHostInt32(x)
 
 #define TRANSMIT_QUEUE_SIZE     256
 #define MAX_BLOCK_SIZE		PAGE_SIZE
 
-#define kPipeStalled       1
-
 #define N_OUT_BUFS         16
-#define OUT_BUF_MAX_TRIES  10 /* 50ms total */
-#define OUT_BUF_WAIT_TIME  5000000 /* ns */
+// Number of free out buffers we want to have before we
+// issue unstall request to the queue.
+#define N_OUT_BUFS_UNSTALL 3
 
 #define MAX_MTU 1536
 
@@ -226,98 +218,108 @@ struct rndis_set_c {
 /***** Actual class definitions *****/
 
 typedef struct {
-	bool inuse;
 	IOBufferMemoryDescriptor *mdp;
-	void *buf;
-	IOUSBCompletion comp;
+	IOUSBHostCompletion comp;
 } pipebuf_t;
 
 class HoRNDIS : public IOEthernetController {
 	OSDeclareDefaultStructors(HoRNDIS);	// Constructor & Destructor stuff
 
 private:
-	bool fTerminate; // being terminated now (i.e., device being unplugged)
+	// We need to lock enable/disable calls for the following reason.
+	// Normally, the calls to this class should be protected by IOGate.
+	// However, the synchronous USB calls use IOCommandGate::commandSleep
+	// that opens up the gate (for USB transfer completion callback), and
+	// we receive another concurrent "enable" call. So we use additional logic
+	// to serialize enable/disable calls.
+	// TODO(iakhiaev): I suspect, something is messed up in our interaction
+	// with Network Interface - causing 'enable' to be called twice ...
+	class EnableDisableLocker {
+	public:
+		EnableDisableLocker(HoRNDIS *inInst);
+		~EnableDisableLocker();
+		IOReturn getResult() const { return result; }
+		bool isInterrupted() const { return result != kIOReturnSuccess; }
+	private:
+		HoRNDIS *const inst;
+		IOReturn result;
+	};
 		
 	IOEthernetInterface *fNetworkInterface;
 	IONetworkStats *fpNetStats;
-	
-	OSDictionary *fMediumDict;
 
+	// TODO(iakhiaev): 'fReadyToTransmit' may be unnecessary.
+	bool fReadyToTransfer;  // Ready to transmit: Android <-> MAC.
 	bool fNetifEnabled;
+	bool fEnableDisableInProgress;
 	bool fDataDead;
-	 
-	IOUSBInterface *fCommInterface;
-	IOUSBInterface *fDataInterface;
+	// fCallbackCount is the number of callbacks concurrently running
+	// (possibly offset by a certain value).
+	//  - Every successful async API call shall "fCallbackCount++".
+	//  - Every time we exit the completion without making another call:
+	//    'callbackExit()'.
+	int fCallbackCount;
 	
-	IOUSBPipe *fInPipe;
-	IOUSBPipe *fOutPipe;
+	// USB Communication:
+	IOUSBHostInterface *fCommInterface;
+	IOUSBHostInterface *fDataInterface;
 	
-	IOLock *xid_lock;
-	uint32_t xid;
-	uint32_t mtu;
+	IOUSBHostPipe *fInPipe;
+	IOUSBHostPipe *fOutPipe;
 	
-	IOLock *outbuf_lock;
-	pipebuf_t outbufs[N_OUT_BUFS];
-	static void dataWriteComplete(void *obj, void *param, IOReturn ior, UInt32 remaining);
+	uint32_t rndisXid;  // RNDIS request_id count.
+	uint32_t mtu;  // Computed by 'rdisInit', based on device reply.
 
+	pipebuf_t outbufs[N_OUT_BUFS];
 	pipebuf_t inbuf;
-	static void dataReadComplete(void *obj, void *param, IOReturn ior, UInt32 remaining);
+	uint16_t outbufStack[N_OUT_BUFS];
+	int numFreeOutBufs;
+
+	void callbackExit();
+	static void dataWriteComplete(void *obj, void *param, IOReturn ior, UInt32 transferred);
+	static void dataReadComplete(void *obj, void *param, IOReturn ior, UInt32 transferred);
 
 	bool rndisInit();
-	int rndisCommand(struct rndis_msg_hdr *buf, int buflen);
+	IOReturn rndisCommand(struct rndis_msg_hdr *buf, int buflen);
 	int rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, int *reply_len);
 	bool rndisSetPacketFilter(uint32_t filter);
 
-	bool openInterfaces();
-	int ctrlclass, ctrlsubclass, ctrlprotocol, ctrlconfig;
-	
-	/* The capitalization, of course, is inconsistent, because that's
-	 * just how it came from the APIs that they wrap.  Blame Apple, not
-	 * me.  */
-	static IOService *waitForMatchingUSBInterface(uint32_t cl, uint32_t subcl, uint32_t proto);
-	IOUSBInterface *FindNextMatchingInterface(IOUSBInterface *intf, uint32_t cl, uint32_t subcl, uint32_t proto);
+	bool openUSBInterfaces(IOUSBHostInterface *controlInterface);
+	void closeUSBInterfaces();
 
-	bool createMediumTables(void);
+	bool createMediumTables(const IONetworkMedium **primary);
 	bool allocateResources(void);
 	void releaseResources(void);
 	bool createNetworkInterface(void);
-	UInt32 outputPacket(mbuf_t pkt, void *param);
-	IOReturn clearPipeStall(IOUSBPipe *thePipe);
-	void receivePacket(void *packet, UInt32 size);
 	
-	IOWorkLoop *workloop;
+	static void maybeClearPipeStall(IOReturn rc, IOUSBHostPipe *thePipe);
+	void receivePacket(void *packet, UInt32 size);
 
 public:
-	IOUSBDevice *fpDevice;
-	IOUSBInterface *fpInterface;
-
 	// IOKit overrides
-	virtual bool init(OSDictionary *properties = 0);
-	virtual bool start(IOService *provider);
-	virtual void stop(IOService *provider);
-	virtual bool createWorkLoop();
-	virtual IOWorkLoop *getWorkLoop() const;
-	virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0);
-	virtual IOService *probe(IOService *provider, SInt32 *score);
+	virtual bool init(OSDictionary *properties = 0) override;
+	virtual void free() override;
+	virtual IOService *probe(IOService *provider, SInt32 *score) override;
+	virtual bool start(IOService *provider) override;
+	virtual bool willTerminate(IOService * provider, IOOptionBits options) override;
+	virtual void stop(IOService *provider) override;
 
+	// virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0) override;
+	
 	// IOEthernetController overrides
-	virtual IOReturn enable(IONetworkInterface *netif);
-	virtual IOReturn disable(IONetworkInterface *netif);
-	virtual IOReturn getPacketFilters(const OSSymbol *group, UInt32 *filters ) const;
-	virtual IOReturn getMaxPacketSize(UInt32 * maxSize) const;
-	virtual IOReturn selectMedium(const IONetworkMedium *medium);
-	virtual IOReturn getHardwareAddress(IOEthernetAddress *addr);
-	virtual IOReturn setPromiscuousMode(bool active);
-	virtual IOOutputQueue *createOutputQueue(void);
-	virtual bool configureInterface(IONetworkInterface *netif);
-	virtual IONetworkInterface *createInterface();
-};
-
-/* If there are other ways to get access to a device, we probably want them here. */
-class HoRNDISUSBDevice : public HoRNDIS {
-	OSDeclareDefaultStructors(HoRNDISUSBDevice);
-public:
-	virtual bool start(IOService *provider);
+	virtual IOOutputQueue *createOutputQueue(void) override;
+	virtual IOReturn getHardwareAddress(IOEthernetAddress *addr) override;
+	virtual IOReturn getMaxPacketSize(UInt32 * maxSize) const override;
+	virtual IOReturn getPacketFilters(const OSSymbol *group,
+									  UInt32 *filters ) const  override;
+	virtual IONetworkInterface *createInterface() override;
+	virtual bool configureInterface(IONetworkInterface *netif) override;
+	
+	virtual IOReturn enable(IONetworkInterface *netif) override;
+	virtual IOReturn disable(IONetworkInterface *netif) override;
+	virtual IOReturn selectMedium(const IONetworkMedium *medium) override;
+	//virtual IOReturn setPromiscuousMode(bool active) override;
+	virtual UInt32 outputPacket(mbuf_t pkt, void *param) override;
 };
 
 class HoRNDISInterface : public IOEthernetInterface {
@@ -325,5 +327,5 @@ class HoRNDISInterface : public IOEthernetInterface {
 	int maxmtu;
 public:
 	virtual bool init(IONetworkController * controller, int mtu);
-	virtual bool setMaxTransferUnit(UInt32 mtu);
+	virtual bool setMaxTransferUnit(UInt32 mtu) override;
 };
