@@ -592,27 +592,27 @@ bool HoRNDIS::createMediumTables(const IONetworkMedium **primary) {
 }
 
 bool HoRNDIS::allocateResources() {
-	LOG(V_DEBUG, "Allocating buffers (1 input, %d output), %d bytes each",
-		N_OUT_BUFS, MAX_BLOCK_SIZE);
+	LOG(V_DEBUG, "Allocating 1 input buffer (size=%d) and %d output "
+		"buffers (size=%d)", IN_BUF_SIZE, N_OUT_BUFS, OUT_BUF_SIZE);
 	
 	// Grab a memory descriptor pointer for data-in.
-	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
+	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(IN_BUF_SIZE, kIODirectionIn);
 	if (!inbuf.mdp) {
 		return false;
 	}
+	inbuf.mdp->setLength(IN_BUF_SIZE);
 	LOG(V_PTR, "PTR: inbuf.mdp: %p", inbuf.mdp);
-	inbuf.mdp->setLength(MAX_BLOCK_SIZE);
 	
 	// And a handful for data-out...
 	for (int i = 0; i < N_OUT_BUFS; i++) {
-		outbufs[i].mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionOut);
+		outbufs[i].mdp = IOBufferMemoryDescriptor::withCapacity(
+			OUT_BUF_SIZE, kIODirectionOut);
 		if (!outbufs[i].mdp) {
 			LOG(V_ERROR, "allocate output descriptor failed");
 			return false;
 		}
 		LOG(V_PTR, "PTR: outbufs[%d].mdp: %p", i, outbufs[i].mdp);
-		
-		outbufs[i].mdp->setLength(MAX_BLOCK_SIZE);
+		outbufs[i].mdp->setLength(OUT_BUF_SIZE);
 		outbufStack[i] = i;
 	}
 	numFreeOutBufs = N_OUT_BUFS;
@@ -900,7 +900,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	// which is NOT the same as 'kIOReturnOutputStall'.
 	const bool stallQueue = (numFreeOutBufs == 0);
 	if (stallQueue) {
-		LOG(V_DEBUG, "Issuing stall command to the output queue");
+		LOG(V_PACKET, "Issuing stall command to the output queue");
 	}
 	return kIOOutputStatusAccepted |
 		(stallQueue ? kIOOutputCommandStall : kIOOutputCommandNone);
@@ -1023,14 +1023,6 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 	IOReturn rv;
 	
 	LOG(V_PACKET, "packet sz %d", (int)size);
-
-	// TODO(iakhiaev): Something fishy going on here: packet drops!!
-	
-	if (size > MAX_BLOCK_SIZE) {
-		LOG(V_ERROR, "packet size error, packet dropped");
-		fpNetStats->inputErrors++;
-		return;
-	}
 	
 	while (size) {
 		struct rndis_data_hdr *hdr = (struct rndis_data_hdr *)packet;

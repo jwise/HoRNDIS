@@ -55,13 +55,16 @@ extern "C"
 #define le32_to_cpu(x) OSSwapLittleToHostInt32(x)
 
 #define TRANSMIT_QUEUE_SIZE     256
-#define MAX_BLOCK_SIZE		PAGE_SIZE
+#define OUT_BUF_SIZE			4096
+// Use large input buffer(s): some Android versions like to make large
+// transfers, and we need to read whole thing in a single IOUSBHostPipe::io
+// call; else, we'd have to merge buffers, and that's a real pain in the butt.
+#define IN_BUF_SIZE				16384
 
 #define N_OUT_BUFS         16
 // Number of free out buffers we want to have before we
 // issue unstall request to the queue.
 #define N_OUT_BUFS_UNSTALL 3
-
 #define MAX_MTU 1536
 
 /***** RNDIS definitions -- from linux/include/linux/usb/rndis_host.h ****/
