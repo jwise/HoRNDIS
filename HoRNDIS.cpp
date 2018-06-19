@@ -880,15 +880,16 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	if (ior != kIOReturnSuccess) {
 		LOG(V_ERROR, "write failed");
 		if (ior == kUSBHostReturnPipeStalled) {
+			// If we have pipe stall error, clear and retry.
 			fOutPipe->clearStall(false);
 			ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
-			if (ior != kIOReturnSuccess) {
-				LOG(V_ERROR, "write re-try failed as well");
-				fpNetStats->outputErrors++;
-				// Packet was already freed: just quit:
-				return kIOReturnOutputDropped;
-			}
 		}
+	}
+	if (ior != kIOReturnSuccess) {
+		LOG(V_ERROR, "write re-try failed as well");
+		fpNetStats->outputErrors++;
+		// Packet was already freed: just quit:
+		return kIOReturnOutputDropped;
 	}
 	// Only here - when 'fOutPipe->io' has fired - we mark the buffer in-use:
 	numFreeOutBufs--;
