@@ -61,10 +61,7 @@ extern "C"
 // call; else, we'd have to merge buffers, and that's a real pain in the butt.
 #define IN_BUF_SIZE				16384
 
-#define N_OUT_BUFS         16
-// Number of free out buffers we want to have before we
-// issue unstall request to the queue.
-#define N_OUT_BUFS_UNSTALL 3
+#define N_OUT_BUFS         4
 #define MAX_MTU 1536
 
 /***** RNDIS definitions -- from linux/include/linux/usb/rndis_host.h ****/

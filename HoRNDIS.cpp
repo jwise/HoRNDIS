@@ -951,10 +951,9 @@ void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 tran
 
 	me->outbufStack[me->numFreeOutBufs] = poolIndx;
 	me->numFreeOutBufs++;
-	if (me->numFreeOutBufs == N_OUT_BUFS_UNSTALL) {
-		// Maybe un-stall the queue:
-		// Per header comment, calling this on un-stalled queue is harmless,
-		// so just call this whenever we cross the UNSTALL watermark:
+	// Unstall the queue whenever the number of free buffers goes 0->1.
+	// I.e. we unstall it the moment we're able to write something into it:
+	if (me->numFreeOutBufs == 1) {
 		me->getOutputQueue()->service();
 	}
 }
