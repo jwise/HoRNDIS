@@ -62,6 +62,11 @@ extern "C"
 #define IN_BUF_SIZE				16384
 
 #define N_OUT_BUFS         4
+// The N_IN_BUFS value should either be 1 or 2.
+// 2 - double-buffering enabled, 1 - double-buffering disabled: single reader.
+// NOTE: surprisingly, single-buffer overall performs better, probably due to
+// less contention on the USB2 bus, which is half-duplex.
+#define N_IN_BUFS			1
 #define MAX_MTU 1536
 
 /***** RNDIS definitions -- from linux/include/linux/usb/rndis_host.h ****/
@@ -271,7 +276,8 @@ private:
 	uint32_t mtu;  // Computed by 'rdisInit', based on device reply.
 
 	pipebuf_t outbufs[N_OUT_BUFS];
-	pipebuf_t inbuf;
+	// Allow double-buffering to enable the best hardware utilization:
+	pipebuf_t inbufs[N_IN_BUFS];
 	uint16_t outbufStack[N_OUT_BUFS];
 	int numFreeOutBufs;
 
