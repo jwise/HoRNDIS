@@ -99,8 +99,9 @@ bool HoRNDIS::init(OSDictionary *properties) {
 		outbufs[i].mdp = NULL;
 		outbufStack[i] = i;  // Value does not matter here.
 	}
-	
-	inbuf.mdp = NULL;
+	for (int i = 0 ; i < N_IN_BUFS; i++) {
+		inbufs[i].mdp = NULL;
+	}
 
 	rndisXid = 1;
 	mtu = 0;
@@ -456,17 +457,21 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	// We can now perform reads and writes between Network stack and USB device:
 	fReadyToTransfer = true;
 	
-	// Kick off the first read.
-	inbuf.comp.owner = this;
-	inbuf.comp.action = dataReadComplete;
-	inbuf.comp.parameter = NULL;
+	// Kick off the read requests:
+	for (int i = 0; i < N_IN_BUFS; i++) {
+		pipebuf_t &inbuf = inbufs[i];
+		inbuf.comp.owner = this;
+		inbuf.comp.action = dataReadComplete;
+		inbuf.comp.parameter = &inbuf;
 	
-	rtn = fInPipe->io(inbuf.mdp, (uint32_t)inbuf.mdp->getLength(), &inbuf.comp, 0);
-	if (rtn != kIOReturnSuccess) {
-		LOG(V_ERROR, "Failed to start the first read %d\n", rtn);
-		goto bailout;
+		rtn = fInPipe->io(inbuf.mdp, (uint32_t)inbuf.mdp->getLength(),
+			&inbuf.comp, 0);
+		if (rtn != kIOReturnSuccess) {
+			LOG(V_ERROR, "Failed to start the first read %d\n", rtn);
+			goto bailout;
+		}
+		fCallbackCount++;
 	}
-	fCallbackCount++;
 
 	// Tell the world that the link is up...
 	if (!setLinkStatus(kIONetworkLinkActive | kIONetworkLinkValid,
@@ -592,17 +597,19 @@ bool HoRNDIS::createMediumTables(const IONetworkMedium **primary) {
 }
 
 bool HoRNDIS::allocateResources() {
-	LOG(V_DEBUG, "Allocating 1 input buffer (size=%d) and %d output "
-		"buffers (size=%d)", IN_BUF_SIZE, N_OUT_BUFS, OUT_BUF_SIZE);
+	LOG(V_DEBUG, "Allocating %d input buffers (size=%d) and %d output "
+		"buffers (size=%d)", N_IN_BUFS, IN_BUF_SIZE, N_OUT_BUFS, OUT_BUF_SIZE);
 	
 	// Grab a memory descriptor pointer for data-in.
-	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(IN_BUF_SIZE, kIODirectionIn);
-	if (!inbuf.mdp) {
-		return false;
+	for (int i = 0; i < N_IN_BUFS; i++) {
+		inbufs[i].mdp = IOBufferMemoryDescriptor::withCapacity(IN_BUF_SIZE, kIODirectionIn);
+		if (!inbufs[i].mdp) {
+			return false;
+		}
+		inbufs[i].mdp->setLength(IN_BUF_SIZE);
+		LOG(V_PTR, "PTR: inbuf[%d].mdp: %p", i, inbufs[i].mdp);
 	}
-	inbuf.mdp->setLength(IN_BUF_SIZE);
-	LOG(V_PTR, "PTR: inbuf.mdp: %p", inbuf.mdp);
-	
+
 	// And a handful for data-out...
 	for (int i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = IOBufferMemoryDescriptor::withCapacity(
@@ -629,8 +636,10 @@ void HoRNDIS::releaseResources() {
 		outbufStack[i] = i;
 	}
 	numFreeOutBufs = 0;
-	
-	OSSafeReleaseNULL(inbuf.mdp);
+
+	for (int i = 0; i < N_IN_BUFS; i++) {
+		OSSafeReleaseNULL(inbufs[i].mdp);
+	}
 }
 
 IOOutputQueue* HoRNDIS::createOutputQueue() {
@@ -970,6 +979,7 @@ void HoRNDIS::maybeClearPipeStall(IOReturn rc, IOUSBHostPipe *thePipe) {
 /***** Packet receive logic *****/
 void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 transferred) {
 	HoRNDIS	*me = (HoRNDIS *)obj;
+	pipebuf_t *inbuf = (pipebuf_t *)param;
 	IOReturn ior;
 
 	// Stop conditions. Not separating them out, since reacting to individual
@@ -983,16 +993,17 @@ void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 trans
 	
 	if (rc == kIOReturnSuccess) {
 		// Got one?  Hand it to the back end.
-		LOG(V_PACKET, "%d bytes", transferred);
-		me->receivePacket(me->inbuf.mdp->getBytesNoCopy(), transferred);
+		LOG(V_PACKET, "Reader(%ld), tid=%lld: %d bytes", inbuf - me->inbufs,
+			thread_tid(current_thread()), transferred);
+		me->receivePacket(inbuf->mdp->getBytesNoCopy(), transferred);
 	} else {
 		LOG(V_ERROR, "dataReadComplete: I/O error: %08x", rc);
 		maybeClearPipeStall(rc, me->fInPipe);
 	}
 	
 	// Queue the next one up.
-	ior = me->fInPipe->io(me->inbuf.mdp, (uint32_t)me->inbuf.mdp->getLength(),
-						&me->inbuf.comp);
+	ior = me->fInPipe->io(inbuf->mdp, (uint32_t)inbuf->mdp->getLength(),
+						&inbuf->comp);
 	if (ior == kIOReturnSuccess) {
 		return;  // Callback is in-progress.
 	}
@@ -1001,8 +1012,8 @@ void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 trans
 	if (ior == kUSBHostReturnPipeStalled) {
 		me->fInPipe->clearStall(false);
 		// Try to read again:
-		ior = me->fInPipe->io(me->inbuf.mdp, (uint32_t)me->inbuf.mdp->getLength(),
-							&me->inbuf.comp);
+		ior = me->fInPipe->io(inbuf->mdp, (uint32_t)inbuf->mdp->getLength(),
+							&inbuf->comp);
 		if (ior == kIOReturnSuccess) {
 			return;  // Callback is finally working!
 		}
