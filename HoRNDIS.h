@@ -231,14 +231,18 @@ class HoRNDIS : public IOEthernetController {
 	OSDeclareDefaultStructors(HoRNDIS);	// Constructor & Destructor stuff
 
 private:
-	// We need to lock enable/disable calls for the following reason.
-	// Normally, the calls to this class should be protected by IOGate.
-	// However, the synchronous USB calls use IOCommandGate::commandSleep
-	// that opens up the gate (for USB transfer completion callback), and
-	// we receive another concurrent "enable" call. So we use additional logic
-	// to serialize enable/disable calls.
-	// TODO(iakhiaev): I suspect, something is messed up in our interaction
-	// with Network Interface - causing 'enable' to be called twice ...
+	/*!
+	 * This class protects "enable" and "disable" calls against re-entry.
+	 * Unlike start/stop calls, that are triggered by a single provider,
+	 * the enable/disable calls can be triggered by potentially more than one
+	 * interface client, as well as user's actions, e.g. "ifconfig en6 up" -
+	 * again by potentially multiple "ifconfig" processes running in parallel.
+	 * Even though the calls to this class are protected by the IOCommandGate,
+	 * synchronous USB transfers release the gate (by using 
+	 * IOCommandGate::commandSleep), allowing another enable/disable call
+	 * to "sneak in". This class allows to delay additional enable/disable
+	 * calls until the first one completes.
+	 */
 	class EnableDisableLocker {
 	public:
 		EnableDisableLocker(HoRNDIS *inInst);
@@ -253,10 +257,11 @@ private:
 	IOEthernetInterface *fNetworkInterface;
 	IONetworkStats *fpNetStats;
 
-	// TODO(iakhiaev): 'fReadyToTransmit' may be unnecessary.
 	bool fReadyToTransfer;  // Ready to transmit: Android <-> MAC.
+	// Set to true when 'enable' succeeds, and
+	// set to false when 'disable' succeeds:
 	bool fNetifEnabled;
-	bool fEnableDisableInProgress;
+	bool fEnableDisableInProgress;  // Guards against re-entry
 	bool fDataDead;
 	// fCallbackCount is the number of callbacks concurrently running
 	// (possibly offset by a certain value).
@@ -298,8 +303,7 @@ private:
 	bool allocateResources(void);
 	void releaseResources(void);
 	bool createNetworkInterface(void);
-	
-	static void maybeClearPipeStall(IOReturn rc, IOUSBHostPipe *thePipe);
+
 	void receivePacket(void *packet, UInt32 size);
 
 public:
