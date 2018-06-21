@@ -441,11 +441,7 @@ static inline IOReturn robustIO(IOUSBHostPipe* pipe, pipebuf_t *buf,
 IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	IOReturn rtn = kIOReturnSuccess;
 
-	// TODO(mikhailai): This function needs a better clean-up
-	// in case of errors - probably factor-out some code from 'disable':
-
-	LOG(V_DEBUG, "for interface '%s'", netif->getName());
-	//Toggler entryGuard(&fEnableDisableInProgress);
+	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
 	EnableDisableLocker locker(this);
 	if (locker.isInterrupted()) {
 		LOG(V_ERROR, "Waiting interrupted");
@@ -453,7 +449,8 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	}
 
 	if (fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated enable call: returning success");
+		LOG(V_DEBUG, "Repeated call for %lld, returning success",
+			thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
 
@@ -504,13 +501,12 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	LOG(V_DEBUG, "done for interface: '%s'", netif->getName());
+	LOG(V_DEBUG, "done for thread: %lld", thread_tid(current_thread()));
 	
 	return kIOReturnSuccess;
 	
 bailout:
-	LOG(V_ERROR, "setting up the pipes failed");
-	releaseResources();
+	disableImpl();
 	return rtn;
 }
 
@@ -523,7 +519,7 @@ void HoRNDIS::disableNetworkQueue() {
 }
 
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
-	LOG(V_DEBUG, "for interface: '%s'", netif->getName());
+	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
 	// This function can be called as a consequence of:
 	//  1. USB Disconnect
 	//  2. Some action, while the device is up and running
@@ -539,16 +535,24 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	}
 
 	if (!fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated call");
+		LOG(V_DEBUG, "Repeated call for %lld", thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
 
+	disableImpl();
+
+	LOG(V_DEBUG, "done for thread: %lld", thread_tid(current_thread()));
+	return kIOReturnSuccess;
+}
+
+void HoRNDIS::disableImpl() {
 	disableNetworkQueue();
 
 	// Stop the the new transfers. The code below would cancel the pending ones:
 	fReadyToTransfer = false;
 
-	// TODO(mikhailai): Repeated enable/disable (ifconfig up/down) does not work: investigate!
+	// TODO(mikhailai): Repeated enable/disable (ifconfig up/down)
+	// does not work: investigate!
 	
 	// If USB interfaces are still up, abort the reader and writer:
 	if (fInPipe) {
@@ -566,25 +570,20 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	if (fCommInterface) {
 		rndisSetPacketFilter(0);
 	}
-	
-	// Release all resources
-	releaseResources();
 
-	// TODO(mikhailai): check if we really need this - maybe the USB APIs can
-	// make sure the callbacks are terminated.
-	// Currently, this is useful when 'disable' is called without USB
-	// disconnect, e.g. using "sudo ifconfig en5 down".
+	// Make sure all the callbacks have exited:
 	LOG(V_DEBUG, "Callback count: %d. If not zero, delaying ...",
 		fCallbackCount);
 	while (fCallbackCount > 0) {
 		// No timeout: in our callbacks we trust!
 		getCommandGate()->commandSleep(&fCallbackCount);
 	}
+	LOG(V_DEBUG, "All callbacks exited");
+
+	// Release all resources
+	releaseResources();
 
 	fNetifEnabled = false;
-	LOG(V_DEBUG, "done for interface: %s", netif->getName());
-
-	return kIOReturnSuccess;
 }
 
 bool HoRNDIS::createMediumTables(const IONetworkMedium **primary) {
