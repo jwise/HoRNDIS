@@ -110,10 +110,10 @@ bool HoRNDIS::init(OSDictionary *properties) {
 }
 
 void HoRNDIS::free() {
-	LOG(V_DEBUG, ">");
 	// Here, we shall free everything allocated by the 'init'.
 
 	super::free();
+	LOG(V_NOTE, "driver instance terminated");  // For the default level
 }
 
 bool HoRNDIS::start(IOService *provider) {
@@ -177,6 +177,7 @@ bool HoRNDIS::willTerminate(IOService *provider, IOOptionBits options) {
 	//
 	// Note, per comments in 'IOUSBHostInterface.h' (for some later version
 	// of MacOS SDK), this is the recommended place to close USB interfaces.
+	disableNetworkQueue();
 	closeUSBInterfaces();
 
 	return super::willTerminate(provider, options);
@@ -415,17 +416,32 @@ HoRNDIS::EnableDisableLocker::~EnableDisableLocker() {
 	inst->getCommandGate()->commandWakeup(&statusVar);
 }
 
+/*!
+ * Calls 'pipe->io', and if there is a stall, tries to clear that 
+ * stall and calls it again.
+ */
+static inline IOReturn robustIO(IOUSBHostPipe* pipe, pipebuf_t *buf,
+	uint32_t len) {
+	IOReturn rc = pipe->io(buf->mdp, len, &buf->comp);
+	if (rc == kUSBHostReturnPipeStalled) {
+		LOG(V_DEBUG, "USB Input Pipe is stalled. Clearing and re-trying");
+		rc = pipe->clearStall(true);
+		if (rc != kIOReturnSuccess) {
+			LOG(V_ERROR, "Failed to clear pipe stall: %08x", rc);
+			// Don't fail if 'clearStall' does not work.
+		}
+		rc = pipe->io(buf->mdp, len, &buf->comp);
+	}
+	return rc;
+}
+
 /* Contains buffer alloc and dealloc, notably.  Why do that here?  
    Not just because that's what Apple did. We don't want to consume these 
    resources when the interface is sitting disabled and unused. */
 IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	IOReturn rtn = kIOReturnSuccess;
 
-	// TODO(mikhailai): This function needs a better clean-up
-	// in case of errors - probably factor-out some code from 'disable':
-
-	LOG(V_DEBUG, "for interface '%s'", netif->getName());
-	//Toggler entryGuard(&fEnableDisableInProgress);
+	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
 	EnableDisableLocker locker(this);
 	if (locker.isInterrupted()) {
 		LOG(V_ERROR, "Waiting interrupted");
@@ -433,12 +449,10 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	}
 
 	if (fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated enable call: returning success");
+		LOG(V_DEBUG, "Repeated call for %lld, returning success",
+			thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
-
-	// TODO(iakhiaev): Do we even need the "callback count"? Seems like methods
-	// such USB closing methods make sure the callbacks are complete anyway.
 
 	if (fCallbackCount != 0) {
 		LOG(V_ERROR, "Invalid state: fCallbackCount(=%d) != 0", fCallbackCount);
@@ -463,11 +477,10 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 		inbuf.comp.owner = this;
 		inbuf.comp.action = dataReadComplete;
 		inbuf.comp.parameter = &inbuf;
-	
-		rtn = fInPipe->io(inbuf.mdp, (uint32_t)inbuf.mdp->getLength(),
-			&inbuf.comp, 0);
+
+		rtn = robustIO(fInPipe, &inbuf, (uint32_t)inbuf.mdp->getLength());
 		if (rtn != kIOReturnSuccess) {
-			LOG(V_ERROR, "Failed to start the first read %d\n", rtn);
+			LOG(V_ERROR, "Failed to start the first read: %08x\n", rtn);
 			goto bailout;
 		}
 		fCallbackCount++;
@@ -488,24 +501,33 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	LOG(V_DEBUG, "done for interface: '%s'", netif->getName());
+	LOG(V_NOTE, "completed (tid: %lld): tethering interface '%s' "
+		"should be live now", thread_tid(current_thread()), netif->getName());
 	
 	return kIOReturnSuccess;
 	
 bailout:
-	LOG(V_ERROR, "setting up the pipes failed");
-	releaseResources();
+	disableImpl();
 	return rtn;
 }
 
+void HoRNDIS::disableNetworkQueue() {
+	// Disable the queue (no more outputPacket),
+	// and then flush everything in the queue.
+	getOutputQueue()->stop();
+	getOutputQueue()->setCapacity(0);
+	getOutputQueue()->flush();
+}
+
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
-	LOG(V_DEBUG, "for interface: '%s'", netif->getName());
-	// TODO(mikhailai): Finish writing the comment:
-	// Disable Algorithm:
-	// When we get here, we may be in either of the two situations:
-	// 1. We get here after 'willTerminate' call, when USB interfaces have
-	//    already been closed.
-	// 2. ... (TBW) ....
+	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
+	// This function can be called as a consequence of:
+	//  1. USB Disconnect
+	//  2. Some action, while the device is up and running
+	//     (e.g. "ifconfig en6 down").
+	// In the second case, we'll need to do more cleanup:
+	// ask the RNDIS device to stop transmitting, and abort the callbacks.
+	//
 
 	EnableDisableLocker locker(this);
 	if (locker.isInterrupted()) {
@@ -514,31 +536,33 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	}
 
 	if (!fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated call");
+		LOG(V_DEBUG, "Repeated call for %lld", thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
 
-	// Disable the queue (no more outputPacket),
-	// and then flush everything in the queue.
-	getOutputQueue()->stop();
-	getOutputQueue()->setCapacity(0);
-	getOutputQueue()->flush();
+	disableImpl();
+
+	LOG(V_DEBUG, "done for thread: %lld", thread_tid(current_thread()));
+	return kIOReturnSuccess;
+}
+
+void HoRNDIS::disableImpl() {
+	disableNetworkQueue();
 
 	// Stop the the new transfers. The code below would cancel the pending ones:
 	fReadyToTransfer = false;
 
-	// TODO(mikhailai): Repeated enable/disable (ifconfig up/down) does not work: investigate!
+	// TODO(mikhailai): Repeated enable/disable (ifconfig up/down)
+	// does not work: investigate!
 	
 	// If USB interfaces are still up, abort the reader and writer:
 	if (fInPipe) {
 		fInPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
-			kIOReturnAborted, this);
-		fInPipe->clearStall(false);
+			kIOReturnAborted, NULL);
 	}
 	if (fOutPipe) {
 		fOutPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
-			kIOReturnAborted, this);
-		fOutPipe->clearStall(false);
+			kIOReturnAborted, NULL);
 	}
 
 	setLinkStatus(0, 0);
@@ -547,25 +571,20 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	if (fCommInterface) {
 		rndisSetPacketFilter(0);
 	}
-	
-	// Release all resources
-	releaseResources();
 
-	// TODO(mikhailai): check if we really need this - maybe the USB APIs can
-	// make sure the callbacks are terminated.
-	// Currently, this is useful when 'disable' is called without USB
-	// disconnect, e.g. using "sudo ifconfig en5 down".
+	// Make sure all the callbacks have exited:
 	LOG(V_DEBUG, "Callback count: %d. If not zero, delaying ...",
 		fCallbackCount);
 	while (fCallbackCount > 0) {
 		// No timeout: in our callbacks we trust!
 		getCommandGate()->commandSleep(&fCallbackCount);
 	}
+	LOG(V_DEBUG, "All callbacks exited");
+
+	// Release all resources
+	releaseResources();
 
 	fNetifEnabled = false;
-	LOG(V_DEBUG, "done for interface: %s", netif->getName());
-
-	return kIOReturnSuccess;
 }
 
 bool HoRNDIS::createMediumTables(const IONetworkMedium **primary) {
@@ -684,10 +703,10 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 	if (group == gIOEthernetWakeOnLANFilterGroup) {
 		*filters = 0;
 	} else if (group == gIONetworkFilterGroup) {
-		// We don't want to support multicast broadcast, promiscuous,
-		// or other additional features.
-		*filters = kIOPacketFilterUnicast;
-		// | kIOPacketFilterBroadcast | kIOPacketFilterMulticast | kIOPacketFilterPromiscuous;
+		// Not yet supporting Multicast: need more code for proper support.
+		// kIOPacketFilterMulticast
+		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast
+			| kIOPacketFilterPromiscuous;
 	} else {
 		rtn = super::getPacketFilters(group, filters);
 	}
@@ -720,9 +739,9 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 		return kIOReturnNoMemory;
 	}
 
-	// TODO(iakhiaev): The function is broken: it returns a different sequence
-	// every time: need to investigate.
-	
+	// WARNING: Android devices may randomly-generate RNDIS MAC address.
+	// The function may return different results for the same device.
+
 	rv = rndisQuery(buf, OID_802_3_PERMANENT_ADDRESS, 48, (void **) &bp, &rlen);
 	if (rv < 0) {
 		LOG(V_ERROR, "getHardwareAddress OID failed?");
@@ -741,16 +760,15 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	return kIOReturnSuccess;
 }
 
-// TODO(mikhailai): Test and possibly fix suspend and resume.
-
-/*
 IOReturn HoRNDIS::setPromiscuousMode(bool active) {
 	// XXX This actually needs to get passed down to support 'real'
 	//  RNDIS devices, but it will work okay for Android devices.
-	
 	return kIOReturnSuccess;
 }
 
+// TODO(mikhailai): Test and possibly fix suspend and resume.
+
+/*
 IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 	//IOReturn	ior;
 	switch (type) {
@@ -824,6 +842,11 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 
 /***** Packet transmit logic *****/
 
+static inline bool isTransferStopStatus(IOReturn rc) {
+	// IOReturn indicating that we need to stop transfers:
+	return rc == kIOReturnAborted || rc == kIOReturnNotResponding;
+}
+
 UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	IOReturn ior = kIOReturnSuccess;
 	int poolIndx = N_OUT_BUFS;
@@ -831,6 +854,16 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	// Note, this function MAY or MAY NOT be protected by the IOCommandGate,
 	// depending on the kind of OutputQueue used.
 	// Here, we assume that IOCommandGate is used: no need to lock.
+
+	if (!fReadyToTransfer) {
+		// Technically, we must never be here, because we always disable the
+		// queue before clearing 'fReadyToTransfer', but double-checking here
+		// just in-case: better safe than sorry.
+		LOG(V_DEBUG, "fReadyToTransfer=false: dropping packet "
+			"(we shouldn't even be here)");
+		freePacket(packet);
+		return kIOReturnOutputDropped;
+	}
 	
 	// Count the total size of this packet
 	size_t pktlen = 0;
@@ -885,18 +918,14 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	comp->parameter = (void *)(uintptr_t)poolIndx;
 	comp->action    = dataWriteComplete;
 	
-	ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
+	ior = robustIO(fOutPipe, &outbufs[poolIndx], transmitLength);
 	if (ior != kIOReturnSuccess) {
-		LOG(V_ERROR, "write failed");
-		if (ior == kUSBHostReturnPipeStalled) {
-			// If we have pipe stall error, clear and retry.
-			fOutPipe->clearStall(false);
-			ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
+		if (isTransferStopStatus(ior)) {
+			LOG(V_DEBUG, "WRITER: The device was possibly disconnected: ignoring the error");
+		} else {
+			LOG(V_ERROR, "write failed: %08x", ior);
+			fpNetStats->outputErrors++;
 		}
-	}
-	if (ior != kIOReturnSuccess) {
-		LOG(V_ERROR, "write re-try failed as well");
-		fpNetStats->outputErrors++;
 		// Packet was already freed: just quit:
 		return kIOReturnOutputDropped;
 	}
@@ -913,11 +942,6 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	}
 	return kIOOutputStatusAccepted |
 		(stallQueue ? kIOOutputCommandStall : kIOOutputCommandNone);
-}
-
-static inline bool isTransferStopStatus(IOReturn rc) {
-	// IOReturn indicating that we need to stop transfers:
-	return rc == kIOReturnAborted || rc == kIOReturnNotResponding;
 }
 
 void HoRNDIS::callbackExit() {
@@ -947,9 +971,9 @@ void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 tran
 	}
 
 	if (rc != kIOReturnSuccess) {
-		// Sigh.  Try to clean up.
+		// Write error. In case of pipe stall,
+		// we shall clear it on the next transmit.
 		LOG(V_ERROR, "I/O error: %08x", rc);
-		maybeClearPipeStall(rc, me->fOutPipe);
 	}
 
 	// Free the buffer: put the index back onto the stack:
@@ -967,14 +991,6 @@ void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 tran
 	}
 }
 
-void HoRNDIS::maybeClearPipeStall(IOReturn rc, IOUSBHostPipe *thePipe) {
-	if (rc == kUSBHostReturnPipeStalled) {
-		rc = thePipe->clearStall(true);
-		if (rc != kIOReturnSuccess) {
-			LOG(V_ERROR, "clear stall failed (trying to continue)");
-		}
-	}
-}
 
 /***** Packet receive logic *****/
 void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 transferred) {
@@ -998,28 +1014,15 @@ void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 trans
 		me->receivePacket(inbuf->mdp->getBytesNoCopy(), transferred);
 	} else {
 		LOG(V_ERROR, "dataReadComplete: I/O error: %08x", rc);
-		maybeClearPipeStall(rc, me->fInPipe);
 	}
 	
 	// Queue the next one up.
-	ior = me->fInPipe->io(inbuf->mdp, (uint32_t)inbuf->mdp->getLength(),
-						&inbuf->comp);
+	ior = robustIO(me->fInPipe, inbuf, (uint32_t)inbuf->mdp->getLength());
 	if (ior == kIOReturnSuccess) {
 		return;  // Callback is in-progress.
 	}
 
-	LOG(V_ERROR, "failed to queue read: %08x", ior);
-	if (ior == kUSBHostReturnPipeStalled) {
-		me->fInPipe->clearStall(false);
-		// Try to read again:
-		ior = me->fInPipe->io(inbuf->mdp, (uint32_t)inbuf->mdp->getLength(),
-							&inbuf->comp);
-		if (ior == kIOReturnSuccess) {
-			return;  // Callback is finally working!
-		}
-	}
-
-	LOG(V_ERROR, "READER STOPPED: USB FAILURE, cannot recover");
+	LOG(V_ERROR, "READER STOPPED: USB failure trying to read: %08x", ior);
 	me->callbackExit();
 	me->fDataDead = true;
 }
@@ -1126,11 +1129,25 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 			goto bailout;
 		}
 	}
-	
-	// Linux polls on the status channel, too; hopefully this shouldn't be needed if we're just talking to Android.
-	
+
+	// TODO(mikhailai): Try implementing the actual protocol logic.
+	// The RNDIS control messages are done via 'deviceRequest' - issue control
+	// transfers on the device's default endpoint. Per [MSDN-RNDISUSB], if
+	// a device is not ready (for some reason) to reply with the actual data,
+	// it shall send a one-byte reply indicating an error, rather than stall
+	// the control pipe. The retry loop below is a hackish way of waiting
+	// for the reply.
+	//
+	// Per [MSDN-RNDISUSB], once the driver sends a OUT device transfer, it
+	// should wait for a notification on the interrupt endpoint from
+	// fCommInterface, and only then perform a device request to retrieve
+	// the result. Whether Android does that correctly is something I need to
+	// investigate.
+	//
+	// Reference:
+	// https://docs.microsoft.com/en-us/windows-hardware/drivers/network/control-channel-characteristics
+
 	// Now we wait around a while for the device to get back to us.
-	// TODO(mikhailai): Do we need this stupid polling?
 	int count;
 	for (count = 0; count < 10; count++) {
 		struct rndis_msg_hdr *rxbuf = (struct rndis_msg_hdr *) rxdsc->getBytesNoCopy();
@@ -1147,7 +1164,7 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		if ((rc = fCommInterface->deviceRequest(rq, rxdsc, bytes_transferred)) != kIOReturnSuccess) {
 			goto bailout;
 		}
-		// TODO(mikhailai): Refactor this all: I think it can be WAY simpler!
+
 		if (bytes_transferred < 8) {
 			LOG(V_ERROR, "short read on control request?");
 			IOSleep(20);
@@ -1260,22 +1277,32 @@ bool HoRNDIS::rndisInit() {
 	u.init->msg_len = cpu_to_le32(sizeof *u.init);
 	u.init->major_version = cpu_to_le32(1);
 	u.init->minor_version = cpu_to_le32(0);
-	u.init->mtu = MAX_MTU + sizeof(struct rndis_data_hdr);
+	// This is the maximum USB transfer the device is allowed to make to host:
+	u.init->max_transfer_size = IN_BUF_SIZE;
 	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "INIT not successful?");
 		IOFree(u.buf, RNDIS_CMD_BUF_SZ);
 		return false;
 	}
-	
-	mtu = (uint32_t)(le32_to_cpu(u.init_c->mtu) - sizeof(struct rndis_data_hdr)
+
+	LOG(V_NOTE, "'%s': ver=%d.%d, max_packets_per_transer=%d, "
+		"max_transfer_size=%d, packet_alignment=2^%d",
+		fCommInterface->getDevice()->getName(), u.init_c->major_version,
+		u.init_c->minor_version, u.init_c->max_packets_per_transfer,
+		u.init_c->max_transfer_size, u.init_c->packet_alignment);
+
+	// TODO(iakhiaev): 'max_tranfer_size' is not exactly the same as MTU.
+	// We should double-check this logic.
+	mtu = (uint32_t)(le32_to_cpu(u.init_c->max_transfer_size)
+					 - sizeof(struct rndis_data_hdr)
 					 - 36  // hard_header_len on Linux
 					 - 14  // ethernet headers
 					 );
 	if (mtu > MAX_MTU) {
 		mtu = MAX_MTU;
 	}
-	LOG(V_NOTE, "their MTU %d", mtu);
+	LOG(V_DEBUG, "their MTU %d", mtu);
 	
 	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
 	

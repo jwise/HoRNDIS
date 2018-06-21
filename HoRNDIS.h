@@ -54,11 +54,21 @@ extern "C"
 #define cpu_to_le32(x) OSSwapHostToLittleInt32(x)
 #define le32_to_cpu(x) OSSwapLittleToHostInt32(x)
 
+// REFERENCES:
+// [MS-RNDIS]: Remote Network Driver Interface Specification (RNDIS) Protocol
+//   https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/WinArchive/[MS-RNDIS].pdf
+// [MSDN-RNDISUSB]: Remote NDIS To USB Mapping
+//   https://docs.microsoft.com/en-us/windows-hardware/drivers/network/remote-ndis-to-usb-mapping
+
 #define TRANSMIT_QUEUE_SIZE     256
 #define OUT_BUF_SIZE			4096
-// Use large input buffer(s): some Android versions like to make large
-// transfers, and we need to read whole thing in a single IOUSBHostPipe::io
-// call; else, we'd have to merge buffers, and that's a real pain in the butt.
+
+// Per [MS-RNDIS], description of REMOTE_NDIS_INITIALIZE_MSG:
+//    "MaxTransferSize (4 bytes): ... It SHOULD be set to 0x00004000"
+// I.e. specs recommends we should be able to input 16K in a single transfer.
+// Also, some Android versions (e.g. 8.1.0 on Pixel 2) seem to ignore
+// "max_transfer_size" in "REMOTE_NDIS_INITIALIZE_MSG" and use packets up to
+// 16K regardless.
 #define IN_BUF_SIZE				16384
 
 #define N_OUT_BUFS         4
@@ -121,7 +131,7 @@ struct rndis_init {
 	uint32_t request_id;
 	uint32_t major_version;
 	uint32_t minor_version;
-	uint32_t mtu;
+	uint32_t max_transfer_size;
 } __attribute__((packed));
 
 struct rndis_init_c {
@@ -133,8 +143,8 @@ struct rndis_init_c {
 	uint32_t minor_version;
 	uint32_t device_flags;
 	uint32_t medium;
-	uint32_t max_packets_per_message;
-	uint32_t mtu;
+	uint32_t max_packets_per_transfer;
+	uint32_t max_transfer_size;
 	uint32_t packet_alignment;
 	uint32_t af_list_offset;
 	uint32_t af_list_size;
@@ -231,14 +241,18 @@ class HoRNDIS : public IOEthernetController {
 	OSDeclareDefaultStructors(HoRNDIS);	// Constructor & Destructor stuff
 
 private:
-	// We need to lock enable/disable calls for the following reason.
-	// Normally, the calls to this class should be protected by IOGate.
-	// However, the synchronous USB calls use IOCommandGate::commandSleep
-	// that opens up the gate (for USB transfer completion callback), and
-	// we receive another concurrent "enable" call. So we use additional logic
-	// to serialize enable/disable calls.
-	// TODO(iakhiaev): I suspect, something is messed up in our interaction
-	// with Network Interface - causing 'enable' to be called twice ...
+	/*!
+	 * This class protects "enable" and "disable" calls against re-entry.
+	 * Unlike start/stop calls, that are triggered by a single provider,
+	 * the enable/disable calls can be triggered by potentially more than one
+	 * interface client, as well as user's actions, e.g. "ifconfig en6 up" -
+	 * again by potentially multiple "ifconfig" processes running in parallel.
+	 * Even though the calls to this class are protected by the IOCommandGate,
+	 * synchronous USB transfers release the gate (by using 
+	 * IOCommandGate::commandSleep), allowing another enable/disable call
+	 * to "sneak in". This class allows to delay additional enable/disable
+	 * calls until the first one completes.
+	 */
 	class EnableDisableLocker {
 	public:
 		EnableDisableLocker(HoRNDIS *inInst);
@@ -253,10 +267,11 @@ private:
 	IOEthernetInterface *fNetworkInterface;
 	IONetworkStats *fpNetStats;
 
-	// TODO(iakhiaev): 'fReadyToTransmit' may be unnecessary.
 	bool fReadyToTransfer;  // Ready to transmit: Android <-> MAC.
+	// Set to true when 'enable' succeeds, and
+	// set to false when 'disable' succeeds:
 	bool fNetifEnabled;
-	bool fEnableDisableInProgress;
+	bool fEnableDisableInProgress;  // Guards against re-entry
 	bool fDataDead;
 	// fCallbackCount is the number of callbacks concurrently running
 	// (possibly offset by a certain value).
@@ -292,13 +307,14 @@ private:
 
 	bool openUSBInterfaces(IOUSBHostInterface *controlInterface);
 	void closeUSBInterfaces();
+	void disableNetworkQueue();
+	void disableImpl();
 
 	bool createMediumTables(const IONetworkMedium **primary);
 	bool allocateResources(void);
 	void releaseResources(void);
 	bool createNetworkInterface(void);
-	
-	static void maybeClearPipeStall(IOReturn rc, IOUSBHostPipe *thePipe);
+
 	void receivePacket(void *packet, UInt32 size);
 
 public:
@@ -324,7 +340,7 @@ public:
 	virtual IOReturn enable(IONetworkInterface *netif) override;
 	virtual IOReturn disable(IONetworkInterface *netif) override;
 	virtual IOReturn selectMedium(const IONetworkMedium *medium) override;
-	//virtual IOReturn setPromiscuousMode(bool active) override;
+	virtual IOReturn setPromiscuousMode(bool active) override;
 	virtual UInt32 outputPacket(mbuf_t pkt, void *param) override;
 };
 
