@@ -177,6 +177,7 @@ bool HoRNDIS::willTerminate(IOService *provider, IOOptionBits options) {
 	//
 	// Note, per comments in 'IOUSBHostInterface.h' (for some later version
 	// of MacOS SDK), this is the recommended place to close USB interfaces.
+	disableNetworkQueue();
 	closeUSBInterfaces();
 
 	return super::willTerminate(provider, options);
@@ -498,6 +499,14 @@ bailout:
 	return rtn;
 }
 
+void HoRNDIS::disableNetworkQueue() {
+	// Disable the queue (no more outputPacket),
+	// and then flush everything in the queue.
+	getOutputQueue()->stop();
+	getOutputQueue()->setCapacity(0);
+	getOutputQueue()->flush();
+}
+
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	LOG(V_DEBUG, "for interface: '%s'", netif->getName());
 	// TODO(mikhailai): Finish writing the comment:
@@ -518,11 +527,7 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 		return kIOReturnSuccess;
 	}
 
-	// Disable the queue (no more outputPacket),
-	// and then flush everything in the queue.
-	getOutputQueue()->stop();
-	getOutputQueue()->setCapacity(0);
-	getOutputQueue()->flush();
+	disableNetworkQueue();
 
 	// Stop the the new transfers. The code below would cancel the pending ones:
 	fReadyToTransfer = false;
@@ -824,6 +829,11 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 
 /***** Packet transmit logic *****/
 
+static inline bool isTransferStopStatus(IOReturn rc) {
+	// IOReturn indicating that we need to stop transfers:
+	return rc == kIOReturnAborted || rc == kIOReturnNotResponding;
+}
+
 UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	IOReturn ior = kIOReturnSuccess;
 	int poolIndx = N_OUT_BUFS;
@@ -831,6 +841,16 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	// Note, this function MAY or MAY NOT be protected by the IOCommandGate,
 	// depending on the kind of OutputQueue used.
 	// Here, we assume that IOCommandGate is used: no need to lock.
+
+	if (!fReadyToTransfer) {
+		// Technically, we must never be here, because we always disable the
+		// queue before clearing 'fReadyToTransfer', but double-checking here
+		// just in-case: better safe than sorry.
+		LOG(V_DEBUG, "fReadyToTransfer=false: dropping packet "
+			"(we shouldn't even be here)");
+		freePacket(packet);
+		return kIOReturnOutputDropped;
+	}
 	
 	// Count the total size of this packet
 	size_t pktlen = 0;
@@ -886,17 +906,22 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	comp->action    = dataWriteComplete;
 	
 	ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
-	if (ior != kIOReturnSuccess) {
-		LOG(V_ERROR, "write failed");
+	if (ior != kIOReturnSuccess && !isTransferStopStatus(ior)) {
+		LOG(V_ERROR, "write failed: %08x", ior);
 		if (ior == kUSBHostReturnPipeStalled) {
 			// If we have pipe stall error, clear and retry.
 			fOutPipe->clearStall(false);
 			ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
 		}
 	}
+
 	if (ior != kIOReturnSuccess) {
-		LOG(V_ERROR, "write re-try failed as well");
-		fpNetStats->outputErrors++;
+		if (isTransferStopStatus(ior)) {
+			LOG(V_DEBUG, "WRITER: The device was possibly disconnected: ignoring the error");
+		} else {
+			LOG(V_ERROR, "write re-try failed as well: %08x", ior);
+			fpNetStats->outputErrors++;
+		}
 		// Packet was already freed: just quit:
 		return kIOReturnOutputDropped;
 	}
@@ -913,11 +938,6 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	}
 	return kIOOutputStatusAccepted |
 		(stallQueue ? kIOOutputCommandStall : kIOOutputCommandNone);
-}
-
-static inline bool isTransferStopStatus(IOReturn rc) {
-	// IOReturn indicating that we need to stop transfers:
-	return rc == kIOReturnAborted || rc == kIOReturnNotResponding;
 }
 
 void HoRNDIS::callbackExit() {
