@@ -416,6 +416,25 @@ HoRNDIS::EnableDisableLocker::~EnableDisableLocker() {
 	inst->getCommandGate()->commandWakeup(&statusVar);
 }
 
+/*!
+ * Calls 'pipe->io', and if there is a stall, tries to clear that 
+ * stall and calls it again.
+ */
+static inline IOReturn robustIO(IOUSBHostPipe* pipe, pipebuf_t *buf,
+	uint32_t len) {
+	IOReturn rc = pipe->io(buf->mdp, len, &buf->comp);
+	if (rc == kUSBHostReturnPipeStalled) {
+		LOG(V_DEBUG, "USB Input Pipe is stalled. Clearing and re-trying");
+		rc = pipe->clearStall(true);
+		if (rc != kIOReturnSuccess) {
+			LOG(V_ERROR, "Failed to clear pipe stall: %08x", rc);
+			// Don't fail if 'clearStall' does not work.
+		}
+		rc = pipe->io(buf->mdp, len, &buf->comp);
+	}
+	return rc;
+}
+
 /* Contains buffer alloc and dealloc, notably.  Why do that here?  
    Not just because that's what Apple did. We don't want to consume these 
    resources when the interface is sitting disabled and unused. */
@@ -437,9 +456,6 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 		LOG(V_DEBUG, "Repeated enable call: returning success");
 		return kIOReturnSuccess;
 	}
-
-	// TODO(iakhiaev): Do we even need the "callback count"? Seems like methods
-	// such USB closing methods make sure the callbacks are complete anyway.
 
 	if (fCallbackCount != 0) {
 		LOG(V_ERROR, "Invalid state: fCallbackCount(=%d) != 0", fCallbackCount);
@@ -464,11 +480,10 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 		inbuf.comp.owner = this;
 		inbuf.comp.action = dataReadComplete;
 		inbuf.comp.parameter = &inbuf;
-	
-		rtn = fInPipe->io(inbuf.mdp, (uint32_t)inbuf.mdp->getLength(),
-			&inbuf.comp, 0);
+
+		rtn = robustIO(fInPipe, &inbuf, (uint32_t)inbuf.mdp->getLength());
 		if (rtn != kIOReturnSuccess) {
-			LOG(V_ERROR, "Failed to start the first read %d\n", rtn);
+			LOG(V_ERROR, "Failed to start the first read: %08x\n", rtn);
 			goto bailout;
 		}
 		fCallbackCount++;
@@ -509,12 +524,13 @@ void HoRNDIS::disableNetworkQueue() {
 
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	LOG(V_DEBUG, "for interface: '%s'", netif->getName());
-	// TODO(mikhailai): Finish writing the comment:
-	// Disable Algorithm:
-	// When we get here, we may be in either of the two situations:
-	// 1. We get here after 'willTerminate' call, when USB interfaces have
-	//    already been closed.
-	// 2. ... (TBW) ....
+	// This function can be called as a consequence of:
+	//  1. USB Disconnect
+	//  2. Some action, while the device is up and running
+	//     (e.g. "ifconfig en6 down").
+	// In the second case, we'll need to do more cleanup:
+	// ask the RNDIS device to stop transmitting, and abort the callbacks.
+	//
 
 	EnableDisableLocker locker(this);
 	if (locker.isInterrupted()) {
@@ -537,13 +553,11 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	// If USB interfaces are still up, abort the reader and writer:
 	if (fInPipe) {
 		fInPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
-			kIOReturnAborted, this);
-		fInPipe->clearStall(false);
+			kIOReturnAborted, NULL);
 	}
 	if (fOutPipe) {
 		fOutPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
-			kIOReturnAborted, this);
-		fOutPipe->clearStall(false);
+			kIOReturnAborted, NULL);
 	}
 
 	setLinkStatus(0, 0);
@@ -725,9 +739,9 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 		return kIOReturnNoMemory;
 	}
 
-	// TODO(iakhiaev): The function is broken: it returns a different sequence
-	// every time: need to investigate.
-	
+	// WARNING: Android devices may randomly-generate RNDIS MAC address.
+	// The function may return different results for the same device.
+
 	rv = rndisQuery(buf, OID_802_3_PERMANENT_ADDRESS, 48, (void **) &bp, &rlen);
 	if (rv < 0) {
 		LOG(V_ERROR, "getHardwareAddress OID failed?");
@@ -905,21 +919,12 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	comp->parameter = (void *)(uintptr_t)poolIndx;
 	comp->action    = dataWriteComplete;
 	
-	ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
-	if (ior != kIOReturnSuccess && !isTransferStopStatus(ior)) {
-		LOG(V_ERROR, "write failed: %08x", ior);
-		if (ior == kUSBHostReturnPipeStalled) {
-			// If we have pipe stall error, clear and retry.
-			fOutPipe->clearStall(false);
-			ior = fOutPipe->io(outbufs[poolIndx].mdp, transmitLength, comp);
-		}
-	}
-
+	ior = robustIO(fOutPipe, &outbufs[poolIndx], transmitLength);
 	if (ior != kIOReturnSuccess) {
 		if (isTransferStopStatus(ior)) {
 			LOG(V_DEBUG, "WRITER: The device was possibly disconnected: ignoring the error");
 		} else {
-			LOG(V_ERROR, "write re-try failed as well: %08x", ior);
+			LOG(V_ERROR, "write failed: %08x", ior);
 			fpNetStats->outputErrors++;
 		}
 		// Packet was already freed: just quit:
@@ -967,9 +972,9 @@ void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 tran
 	}
 
 	if (rc != kIOReturnSuccess) {
-		// Sigh.  Try to clean up.
+		// Write error. In case of pipe stall,
+		// we shall clear it on the next transmit.
 		LOG(V_ERROR, "I/O error: %08x", rc);
-		maybeClearPipeStall(rc, me->fOutPipe);
 	}
 
 	// Free the buffer: put the index back onto the stack:
@@ -987,14 +992,6 @@ void HoRNDIS::dataWriteComplete(void *obj, void *param, IOReturn rc, UInt32 tran
 	}
 }
 
-void HoRNDIS::maybeClearPipeStall(IOReturn rc, IOUSBHostPipe *thePipe) {
-	if (rc == kUSBHostReturnPipeStalled) {
-		rc = thePipe->clearStall(true);
-		if (rc != kIOReturnSuccess) {
-			LOG(V_ERROR, "clear stall failed (trying to continue)");
-		}
-	}
-}
 
 /***** Packet receive logic *****/
 void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 transferred) {
@@ -1018,28 +1015,15 @@ void HoRNDIS::dataReadComplete(void *obj, void *param, IOReturn rc, UInt32 trans
 		me->receivePacket(inbuf->mdp->getBytesNoCopy(), transferred);
 	} else {
 		LOG(V_ERROR, "dataReadComplete: I/O error: %08x", rc);
-		maybeClearPipeStall(rc, me->fInPipe);
 	}
 	
 	// Queue the next one up.
-	ior = me->fInPipe->io(inbuf->mdp, (uint32_t)inbuf->mdp->getLength(),
-						&inbuf->comp);
+	ior = robustIO(me->fInPipe, inbuf, (uint32_t)inbuf->mdp->getLength());
 	if (ior == kIOReturnSuccess) {
 		return;  // Callback is in-progress.
 	}
 
-	LOG(V_ERROR, "failed to queue read: %08x", ior);
-	if (ior == kUSBHostReturnPipeStalled) {
-		me->fInPipe->clearStall(false);
-		// Try to read again:
-		ior = me->fInPipe->io(inbuf->mdp, (uint32_t)inbuf->mdp->getLength(),
-							&inbuf->comp);
-		if (ior == kIOReturnSuccess) {
-			return;  // Callback is finally working!
-		}
-	}
-
-	LOG(V_ERROR, "READER STOPPED: USB FAILURE, cannot recover");
+	LOG(V_ERROR, "READER STOPPED: USB failure trying to read: %08x", ior);
 	me->callbackExit();
 	me->fDataDead = true;
 }
