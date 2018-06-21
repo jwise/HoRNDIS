@@ -292,6 +292,7 @@ private:
 
 	bool openUSBInterfaces(IOUSBHostInterface *controlInterface);
 	void closeUSBInterfaces();
+	void disableNetworkQueue();
 
 	bool createMediumTables(const IONetworkMedium **primary);
 	bool allocateResources(void);
