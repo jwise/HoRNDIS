@@ -1310,15 +1310,19 @@ bool HoRNDIS::rndisInit() {
 
 	LOG(V_NOTE, "'%s': ver=%d.%d, max_packets_per_transer=%d, "
 		"max_transfer_size=%d, packet_alignment=2^%d",
-		fCommInterface->getDevice()->getName(), u.init_c->major_version,
-		u.init_c->minor_version, u.init_c->max_packets_per_transfer,
-		u.init_c->max_transfer_size, u.init_c->packet_alignment);
+		fCommInterface->getDevice()->getName(),
+		le32_to_cpu(u.init_c->major_version),
+		le32_to_cpu(u.init_c->minor_version),
+		le32_to_cpu(u.init_c->max_packets_per_transfer),
+		le32_to_cpu(u.init_c->max_transfer_size),
+		le32_to_cpu(u.init_c->packet_alignment));
 
+	maxOutTransferSize = le32_to_cpu(u.init_c->max_transfer_size);
 	// For now, let's limit the maxOutTransferSize by the Output Buffer size.
 	// If we implement transmitting multiple PDUs in a single USB transfer,
 	// we may want to size the output buffers based on
 	// "u.init_c->max_transfer_size".
-	maxOutTransferSize = min(u.init_c->max_transfer_size, OUT_BUF_SIZE);
+	maxOutTransferSize = min(maxOutTransferSize, OUT_BUF_SIZE);
 	
 	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
 	
