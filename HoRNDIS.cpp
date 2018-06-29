@@ -110,7 +110,6 @@ bool HoRNDIS::init(OSDictionary *properties) {
 }
 
 void HoRNDIS::free() {
-	LOG(V_DEBUG, ">");
 	// Here, we shall free everything allocated by the 'init'.
 
 	super::free();
@@ -513,8 +512,8 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	LOG(V_NOTE, "completed (tid: %lld): tethering should be live now",
-		thread_tid(current_thread()));
+	LOG(V_NOTE, "completed (tid: %lld): tethering interface '%s' "
+		"should be live now", thread_tid(current_thread()), netif->getName());
 	
 	return kIOReturnSuccess;
 	
@@ -715,10 +714,10 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 	if (group == gIOEthernetWakeOnLANFilterGroup) {
 		*filters = 0;
 	} else if (group == gIONetworkFilterGroup) {
-		// We don't want to support multicast broadcast, promiscuous,
-		// or other additional features.
-		*filters = kIOPacketFilterUnicast;
-		// | kIOPacketFilterBroadcast | kIOPacketFilterMulticast | kIOPacketFilterPromiscuous;
+		// Not yet supporting Multicast: need more code for proper support.
+		// kIOPacketFilterMulticast
+		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast
+			| kIOPacketFilterPromiscuous;
 	} else {
 		rtn = super::getPacketFilters(group, filters);
 	}
@@ -778,16 +777,15 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	return kIOReturnSuccess;
 }
 
-// TODO(mikhailai): Test and possibly fix suspend and resume.
-
-/*
 IOReturn HoRNDIS::setPromiscuousMode(bool active) {
 	// XXX This actually needs to get passed down to support 'real'
 	//  RNDIS devices, but it will work okay for Android devices.
-	
 	return kIOReturnSuccess;
 }
 
+// TODO(mikhailai): Test and possibly fix suspend and resume.
+
+/*
 IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 	//IOReturn	ior;
 	switch (type) {
