@@ -77,7 +77,9 @@ extern "C"
 // NOTE: surprisingly, single-buffer overall performs better, probably due to
 // less contention on the USB2 bus, which is half-duplex.
 #define N_IN_BUFS			1
-#define MAX_MTU 1536
+
+// Maximum payload size in a standard (non-jumbo) Ethernet frame.
+#define ETHERNET_MTU 1500
 
 /***** RNDIS definitions -- from linux/include/linux/usb/rndis_host.h ****/
 
@@ -288,7 +290,7 @@ private:
 	IOUSBHostPipe *fOutPipe;
 	
 	uint32_t rndisXid;  // RNDIS request_id count.
-	uint32_t mtu;  // Computed by 'rdisInit', based on device reply.
+	int32_t maxOutTransferSize;  // Set by 'rdisInit' from device reply.
 
 	pipebuf_t outbufs[N_OUT_BUFS];
 	// Allow double-buffering to enable the best hardware utilization:
