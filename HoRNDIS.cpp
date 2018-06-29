@@ -114,6 +114,7 @@ void HoRNDIS::free() {
 	// Here, we shall free everything allocated by the 'init'.
 
 	super::free();
+	LOG(V_NOTE, "driver instance terminated");  // For the default level
 }
 
 bool HoRNDIS::start(IOService *provider) {
@@ -501,7 +502,8 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	LOG(V_DEBUG, "done for thread: %lld", thread_tid(current_thread()));
+	LOG(V_NOTE, "completed (tid: %lld): tethering should be live now",
+		thread_tid(current_thread()));
 	
 	return kIOReturnSuccess;
 	
@@ -1129,11 +1131,25 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 			goto bailout;
 		}
 	}
-	
-	// Linux polls on the status channel, too; hopefully this shouldn't be needed if we're just talking to Android.
-	
+
+	// TODO(mikhailai): Try implementing the actual protocol logic.
+	// The RNDIS control messages are done via 'deviceRequest' - issue control
+	// transfers on the device's default endpoint. Per [MSDN-RNDISUSB], if
+	// a device is not ready (for some reason) to reply with the actual data,
+	// it shall send a one-byte reply indicating an error, rather than stall
+	// the control pipe. The retry loop below is a hackish way of waiting
+	// for the reply.
+	//
+	// Per [MSDN-RNDISUSB], once the driver sends a OUT device transfer, it
+	// should wait for a notification on the interrupt endpoint from
+	// fCommInterface, and only then perform a device request to retrieve
+	// the result. Whether Android does that correctly is something I need to
+	// investigate.
+	//
+	// Reference:
+	// https://docs.microsoft.com/en-us/windows-hardware/drivers/network/control-channel-characteristics
+
 	// Now we wait around a while for the device to get back to us.
-	// TODO(mikhailai): Do we need this stupid polling?
 	int count;
 	for (count = 0; count < 10; count++) {
 		struct rndis_msg_hdr *rxbuf = (struct rndis_msg_hdr *) rxdsc->getBytesNoCopy();
@@ -1150,7 +1166,7 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		if ((rc = fCommInterface->deviceRequest(rq, rxdsc, bytes_transferred)) != kIOReturnSuccess) {
 			goto bailout;
 		}
-		// TODO(mikhailai): Refactor this all: I think it can be WAY simpler!
+
 		if (bytes_transferred < 8) {
 			LOG(V_ERROR, "short read on control request?");
 			IOSleep(20);
@@ -1263,22 +1279,32 @@ bool HoRNDIS::rndisInit() {
 	u.init->msg_len = cpu_to_le32(sizeof *u.init);
 	u.init->major_version = cpu_to_le32(1);
 	u.init->minor_version = cpu_to_le32(0);
-	u.init->mtu = MAX_MTU + sizeof(struct rndis_data_hdr);
+	// This is the maximum USB transfer the device is allowed to make to host:
+	u.init->max_transfer_size = IN_BUF_SIZE;
 	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "INIT not successful?");
 		IOFree(u.buf, RNDIS_CMD_BUF_SZ);
 		return false;
 	}
-	
-	mtu = (uint32_t)(le32_to_cpu(u.init_c->mtu) - sizeof(struct rndis_data_hdr)
+
+	LOG(V_NOTE, "'%s': ver=%d.%d, max_packets_per_transer=%d, "
+		"max_transfer_size=%d, packet_alignment=2^%d",
+		fCommInterface->getDevice()->getName(), u.init_c->major_version,
+		u.init_c->minor_version, u.init_c->max_packets_per_transfer,
+		u.init_c->max_transfer_size, u.init_c->packet_alignment);
+
+	// TODO(iakhiaev): 'max_tranfer_size' is not exactly the same as MTU.
+	// We should double-check this logic.
+	mtu = (uint32_t)(le32_to_cpu(u.init_c->max_transfer_size)
+					 - sizeof(struct rndis_data_hdr)
 					 - 36  // hard_header_len on Linux
 					 - 14  // ethernet headers
 					 );
 	if (mtu > MAX_MTU) {
 		mtu = MAX_MTU;
 	}
-	LOG(V_NOTE, "their MTU %d", mtu);
+	LOG(V_DEBUG, "their MTU %d", mtu);
 	
 	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
 	
