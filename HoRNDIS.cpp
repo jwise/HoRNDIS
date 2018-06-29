@@ -45,8 +45,12 @@
 #define V_NOTE 3
 #define V_ERROR 4
 
-#define DEBUGLEVEL V_DEBUG
-// V_NOTE
+// The XCode "Debug" build is now more verbose:
+#if DEBUG == 1
+	#define DEBUGLEVEL V_DEBUG
+#else
+	#define DEBUGLEVEL V_NOTE
+#endif
 #define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog("HoRNDIS: %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
 
 #define super IOEthernetController
@@ -112,8 +116,8 @@ bool HoRNDIS::init(OSDictionary *properties) {
 void HoRNDIS::free() {
 	// Here, we shall free everything allocated by the 'init'.
 
-	super::free();
 	LOG(V_NOTE, "driver instance terminated");  // For the default level
+	super::free();
 }
 
 bool HoRNDIS::start(IOService *provider) {
@@ -137,11 +141,14 @@ bool HoRNDIS::start(IOService *provider) {
 	if (!openUSBInterfaces(interface)) {
 		goto bailout;
 	}
-	
-	// TODO(mikhailai): 'rndisInit' and from that point on needs more review.
+
 	if (!rndisInit()) {
 		goto bailout;
 	}
+
+	// NOTE: The RNDIS spec mandates the usage of Keep Alive timer; however,
+	// the Android does not seem to be missing its absense, so there is
+	// probably no use in implementing it.
 	
 	LOG(V_DEBUG, "done with RNDIS initialization: can start network interface");
 
@@ -348,7 +355,7 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
  * because we need our own subclass of IOEthernetInterface.  Why's that, you say?
  * Well, we need that because that's the only way to set a different default MTU.
  * Sigh...
- * TODO(iakhiaev): This may not be necessary, because the devices I've seen
+ * TODO(mikhailai): This may not be necessary, because the devices I've seen
  * have "max_transfer_size" large enough to accomodate a max-length Ethernet
  * frame. But then I haven't seen the place that makes it required, so
  * it may be safer to keep the this logic. */
@@ -409,22 +416,26 @@ bool HoRNDIS::createNetworkInterface() {
 }
 
 /***** Interface enable and disable logic *****/
-HoRNDIS::EnableDisableLocker::EnableDisableLocker(HoRNDIS *inInst)
-		: inst(inInst), result(kIOReturnSuccess) {
-	IOCommandGate *const gate = inst->getCommandGate();
-	bool &statusVar = inst->fEnableDisableInProgress;
+HoRNDIS::ReentryLocker::ReentryLocker(IOCommandGate *inGate, bool &inGuard)
+		: gate(inGate), entryGuard(inGuard), result(kIOReturnSuccess) {
 	// Wait until we exit the previously-entered enable or disable method:
-	while (statusVar && !isInterrupted()) {
-		LOG(V_DEBUG, "Delaying the repeated enable/disable call");
-		result = gate->commandSleep(&statusVar);
+	while (entryGuard) {
+		LOG(V_DEBUG, "Delaying the re-entered call");
+		result = gate->commandSleep(&entryGuard);
+		// If "commandSleep" has failed, stop immediately, and don't
+		// touch the 'entryGuard':
+		if (isInterrupted()) {
+			return;
+		}
 	}
-	statusVar = true;  // Mark the entry into enable or disable method.
+	entryGuard = true;  // Mark the entry into one of the protected methods.
 }
 
-HoRNDIS::EnableDisableLocker::~EnableDisableLocker() {
-	bool &statusVar = inst->fEnableDisableInProgress;
-	statusVar = false;
-	inst->getCommandGate()->commandWakeup(&statusVar);
+HoRNDIS::ReentryLocker::~ReentryLocker() {
+	if (!isInterrupted()) {
+		entryGuard = false;
+		gate->commandWakeup(&entryGuard);
+	}
 }
 
 /*!
@@ -452,15 +463,15 @@ static inline IOReturn robustIO(IOUSBHostPipe* pipe, pipebuf_t *buf,
 IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	IOReturn rtn = kIOReturnSuccess;
 
-	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
-	EnableDisableLocker locker(this);
+	LOG(V_DEBUG, "begin for thread_id=%lld", thread_tid(current_thread()));
+	ReentryLocker locker(this, fEnableDisableInProgress);
 	if (locker.isInterrupted()) {
 		LOG(V_ERROR, "Waiting interrupted");
 		return locker.getResult();
 	}
 
 	if (fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated call for %lld, returning success",
+		LOG(V_DEBUG, "Repeated call (thread_id=%lld), returning success",
 			thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
@@ -512,7 +523,7 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	LOG(V_NOTE, "completed (tid: %lld): tethering interface '%s' "
+	LOG(V_NOTE, "completed (thread_id=%lld): tethering interface '%s' "
 		"should be live now", thread_tid(current_thread()), netif->getName());
 	
 	return kIOReturnSuccess;
@@ -531,7 +542,7 @@ void HoRNDIS::disableNetworkQueue() {
 }
 
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
-	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
+	LOG(V_DEBUG, "begin for thread_id=%lld", thread_tid(current_thread()));
 	// This function can be called as a consequence of:
 	//  1. USB Disconnect
 	//  2. Some action, while the device is up and running
@@ -540,20 +551,20 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	// ask the RNDIS device to stop transmitting, and abort the callbacks.
 	//
 
-	EnableDisableLocker locker(this);
+	ReentryLocker locker(this, fEnableDisableInProgress);
 	if (locker.isInterrupted()) {
 		LOG(V_ERROR, "Waiting interrupted");
 		return locker.getResult();
 	}
 
 	if (!fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated call for %lld", thread_tid(current_thread()));
+		LOG(V_DEBUG, "Repeated call (thread_id=%lld)", thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
 
 	disableImpl();
 
-	LOG(V_DEBUG, "done for thread: %lld", thread_tid(current_thread()));
+	LOG(V_DEBUG, "completed (thread_id=%lld)", thread_tid(current_thread()));
 	return kIOReturnSuccess;
 }
 
@@ -1163,6 +1174,10 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	// fCommInterface, and only then perform a device request to retrieve
 	// the result. Whether Android does that correctly is something I need to
 	// investigate.
+	//
+	// TODO(mikhailai): Also, RNDIS specifies that the device may be sending
+	// REMOTE_NDIS_INDICATE_STATUS_MSG on its own. How much this applies to
+	// Android and how useful is that needs to be investigated.
 	//
 	// Reference:
 	// https://docs.microsoft.com/en-us/windows-hardware/drivers/network/control-channel-characteristics

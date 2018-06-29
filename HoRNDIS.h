@@ -83,6 +83,7 @@ extern "C"
 
 /***** RNDIS definitions -- from linux/include/linux/usb/rndis_host.h ****/
 
+// TODO(mikhailai): Should we set to 1024, as per RNDIS spec?
 #define RNDIS_CMD_BUF_SZ 1052
 
 struct rndis_msg_hdr {
@@ -244,25 +245,32 @@ class HoRNDIS : public IOEthernetController {
 
 private:
 	/*!
-	 * This class protects "enable" and "disable" calls against re-entry.
-	 * Unlike start/stop calls, that are triggered by a single provider,
-	 * the enable/disable calls can be triggered by potentially more than one
-	 * interface client, as well as user's actions, e.g. "ifconfig en6 up" -
-	 * again by potentially multiple "ifconfig" processes running in parallel.
+	 * This class protects method calls against re-entry, when the IOCommand
+	 * gate is being released due to synchronous IO, or some other reason.
+	 * Use case:
+	 * Unlike start/stop calls, that are triggered by a single IO provider,
+	 * the enable/disable calls can be triggered by multiple interface clients,
+	 * as well as user's actions, e.g. "ifconfig en6 up" - potentially multiple
+	 * "ifconfig" processes running in parallel.
 	 * Even though the calls to this class are protected by the IOCommandGate,
 	 * synchronous USB transfers release the gate (by using 
 	 * IOCommandGate::commandSleep), allowing another enable/disable call
-	 * to "sneak in". This class allows to delay additional enable/disable
-	 * calls until the first one completes.
+	 * to "sneak in". We use the "ReentryLocker" to delay additional
+	 * enable/disable calls until the first one completes.
 	 */
-	class EnableDisableLocker {
+	class ReentryLocker {
 	public:
-		EnableDisableLocker(HoRNDIS *inInst);
-		~EnableDisableLocker();
+		// 'inGuard' is instance-level variable that would be set by
+		// "ReentryLocker" whenever someone is executing the protected section.
+		ReentryLocker(IOCommandGate *inGate, bool &inGuard);
+		ReentryLocker(IONetworkController *controller, bool &inGuard):
+			ReentryLocker(controller->getCommandGate(), inGuard) {}
+		~ReentryLocker();
 		IOReturn getResult() const { return result; }
 		bool isInterrupted() const { return result != kIOReturnSuccess; }
 	private:
-		HoRNDIS *const inst;
+		IOCommandGate *const gate;
+		bool &entryGuard;
 		IOReturn result;
 	};
 		
