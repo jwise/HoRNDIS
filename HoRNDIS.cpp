@@ -137,11 +137,14 @@ bool HoRNDIS::start(IOService *provider) {
 	if (!openUSBInterfaces(interface)) {
 		goto bailout;
 	}
-	
-	// TODO(mikhailai): 'rndisInit' and from that point on needs more review.
+
 	if (!rndisInit()) {
 		goto bailout;
 	}
+
+	// NOTE: The RNDIS spec mandates the usage of Keep Alive timer; however,
+	// the Android does not seem to be missing its absense, so there is
+	// probably no use in implementing it.
 	
 	LOG(V_DEBUG, "done with RNDIS initialization: can start network interface");
 
@@ -348,7 +351,7 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
  * because we need our own subclass of IOEthernetInterface.  Why's that, you say?
  * Well, we need that because that's the only way to set a different default MTU.
  * Sigh...
- * TODO(iakhiaev): This may not be necessary, because the devices I've seen
+ * TODO(mikhailai): This may not be necessary, because the devices I've seen
  * have "max_transfer_size" large enough to accomodate a max-length Ethernet
  * frame. But then I haven't seen the place that makes it required, so
  * it may be safer to keep the this logic. */
@@ -1167,6 +1170,10 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	// fCommInterface, and only then perform a device request to retrieve
 	// the result. Whether Android does that correctly is something I need to
 	// investigate.
+	//
+	// TODO(mikhailai): Also, RNDIS specifies that the device may be sending
+	// REMOTE_NDIS_INDICATE_STATUS_MSG on its own. How much this applies to
+	// Android and how useful is that needs to be investigated.
 	//
 	// Reference:
 	// https://docs.microsoft.com/en-us/windows-hardware/drivers/network/control-channel-characteristics

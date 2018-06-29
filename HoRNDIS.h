@@ -83,6 +83,7 @@ extern "C"
 
 /***** RNDIS definitions -- from linux/include/linux/usb/rndis_host.h ****/
 
+// TODO(mikhailai): Should we set to 1024, as per RNDIS spec?
 #define RNDIS_CMD_BUF_SZ 1052
 
 struct rndis_msg_hdr {
