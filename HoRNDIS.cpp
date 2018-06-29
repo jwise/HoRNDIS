@@ -112,8 +112,8 @@ bool HoRNDIS::init(OSDictionary *properties) {
 void HoRNDIS::free() {
 	// Here, we shall free everything allocated by the 'init'.
 
-	super::free();
 	LOG(V_NOTE, "driver instance terminated");  // For the default level
+	super::free();
 }
 
 bool HoRNDIS::start(IOService *provider) {
@@ -409,22 +409,26 @@ bool HoRNDIS::createNetworkInterface() {
 }
 
 /***** Interface enable and disable logic *****/
-HoRNDIS::EnableDisableLocker::EnableDisableLocker(HoRNDIS *inInst)
-		: inst(inInst), result(kIOReturnSuccess) {
-	IOCommandGate *const gate = inst->getCommandGate();
-	bool &statusVar = inst->fEnableDisableInProgress;
+HoRNDIS::ReentryLocker::ReentryLocker(IOCommandGate *inGate, bool &inGuard)
+		: gate(inGate), entryGuard(inGuard), result(kIOReturnSuccess) {
 	// Wait until we exit the previously-entered enable or disable method:
-	while (statusVar && !isInterrupted()) {
-		LOG(V_DEBUG, "Delaying the repeated enable/disable call");
-		result = gate->commandSleep(&statusVar);
+	while (entryGuard) {
+		LOG(V_DEBUG, "Delaying the re-entered call");
+		result = gate->commandSleep(&entryGuard);
+		// If "commandSleep" has failed, stop immediately, and don't
+		// touch the 'entryGuard':
+		if (isInterrupted()) {
+			return;
+		}
 	}
-	statusVar = true;  // Mark the entry into enable or disable method.
+	entryGuard = true;  // Mark the entry into one of the protected methods.
 }
 
-HoRNDIS::EnableDisableLocker::~EnableDisableLocker() {
-	bool &statusVar = inst->fEnableDisableInProgress;
-	statusVar = false;
-	inst->getCommandGate()->commandWakeup(&statusVar);
+HoRNDIS::ReentryLocker::~ReentryLocker() {
+	if (!isInterrupted()) {
+		entryGuard = false;
+		gate->commandWakeup(&entryGuard);
+	}
 }
 
 /*!
@@ -453,7 +457,7 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	IOReturn rtn = kIOReturnSuccess;
 
 	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
-	EnableDisableLocker locker(this);
+	ReentryLocker locker(this, fEnableDisableInProgress);
 	if (locker.isInterrupted()) {
 		LOG(V_ERROR, "Waiting interrupted");
 		return locker.getResult();
@@ -540,7 +544,7 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	// ask the RNDIS device to stop transmitting, and abort the callbacks.
 	//
 
-	EnableDisableLocker locker(this);
+	ReentryLocker locker(this, fEnableDisableInProgress);
 	if (locker.isInterrupted()) {
 		LOG(V_ERROR, "Waiting interrupted");
 		return locker.getResult();
