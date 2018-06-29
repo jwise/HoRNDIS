@@ -126,11 +126,6 @@
 			attributes = {
 				LastUpgradeCheck = 0920;
 				ORGANIZATIONNAME = "Joshua Wise";
-				TargetAttributes = {
-					42BCD8A51645AFC500683BF7 = {
-						DevelopmentTeam = G3H8VBSL7A;
-					};
-				};
 			};
 			buildConfigurationList = 42BCD89E1645AFC500683BF7 /* Build configuration list for PBXProject "HoRNDIS" */;
 			compatibilityVersion = "Xcode 6.3";
@@ -217,7 +212,6 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -249,6 +243,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 10.11;
 				ONLY_ACTIVE_ARCH = YES;
 				"OTHER_CPLUSPLUSFLAGS[arch=*]" = "-Wno-inconsistent-missing-override";
+				PRESERVE_DEAD_CODE_INITS_AND_TERMS = YES;
 				SDKROOT = macosx;
 				SYMROOT = "${SRCROOT}/build";
 			};
@@ -278,7 +273,6 @@
 				COPY_PHASE_STRIP = YES;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_ENABLE_KERNEL_DEVELOPMENT = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -302,6 +296,7 @@
 				LLVM_LTO = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.11;
 				"OTHER_CPLUSPLUSFLAGS[arch=*]" = "-Wno-inconsistent-missing-override";
+				PRESERVE_DEAD_CODE_INITS_AND_TERMS = YES;
 				SDKROOT = macosx;
 				SYMROOT = "${SRCROOT}/build";
 			};
@@ -321,7 +316,6 @@
 				MODULE_VERSION = 9.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.joshuawise.kexts.HoRNDIS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
 				WRAPPER_EXTENSION = kext;
 			};
 			name = Debug;
@@ -340,7 +334,6 @@
 				MODULE_VERSION = 9.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.joshuawise.kexts.HoRNDIS;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = macosx;
 				WRAPPER_EXTENSION = kext;
 			};
 			name = Release;
