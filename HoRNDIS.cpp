@@ -45,8 +45,12 @@
 #define V_NOTE 3
 #define V_ERROR 4
 
-#define DEBUGLEVEL V_DEBUG
-// V_NOTE
+// The XCode "Debug" build is now more verbose:
+#if DEBUG == 1
+	#define DEBUGLEVEL V_DEBUG
+#else
+	#define DEBUGLEVEL V_NOTE
+#endif
 #define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog("HoRNDIS: %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
 
 #define super IOEthernetController
@@ -459,7 +463,7 @@ static inline IOReturn robustIO(IOUSBHostPipe* pipe, pipebuf_t *buf,
 IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	IOReturn rtn = kIOReturnSuccess;
 
-	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
+	LOG(V_DEBUG, "begin for thread_id=%lld", thread_tid(current_thread()));
 	ReentryLocker locker(this, fEnableDisableInProgress);
 	if (locker.isInterrupted()) {
 		LOG(V_ERROR, "Waiting interrupted");
@@ -467,7 +471,7 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 	}
 
 	if (fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated call for %lld, returning success",
+		LOG(V_DEBUG, "Repeated call (thread_id=%lld), returning success",
 			thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
@@ -519,7 +523,7 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	LOG(V_NOTE, "completed (tid: %lld): tethering interface '%s' "
+	LOG(V_NOTE, "completed (thread_id=%lld): tethering interface '%s' "
 		"should be live now", thread_tid(current_thread()), netif->getName());
 	
 	return kIOReturnSuccess;
@@ -538,7 +542,7 @@ void HoRNDIS::disableNetworkQueue() {
 }
 
 IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
-	LOG(V_DEBUG, "begin for thread: %lld", thread_tid(current_thread()));
+	LOG(V_DEBUG, "begin for thread_id=%lld", thread_tid(current_thread()));
 	// This function can be called as a consequence of:
 	//  1. USB Disconnect
 	//  2. Some action, while the device is up and running
@@ -554,13 +558,13 @@ IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
 	}
 
 	if (!fNetifEnabled) {
-		LOG(V_DEBUG, "Repeated call for %lld", thread_tid(current_thread()));
+		LOG(V_DEBUG, "Repeated call (thread_id=%lld)", thread_tid(current_thread()));
 		return kIOReturnSuccess;
 	}
 
 	disableImpl();
 
-	LOG(V_DEBUG, "done for thread: %lld", thread_tid(current_thread()));
+	LOG(V_DEBUG, "completed (thread_id=%lld)", thread_tid(current_thread()));
 	return kIOReturnSuccess;
 }
 
