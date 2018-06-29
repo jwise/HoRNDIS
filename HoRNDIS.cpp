@@ -104,7 +104,7 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	}
 
 	rndisXid = 1;
-	mtu = 0;
+	maxOutTransferSize = 0;
 	
 	return true;
 }
@@ -345,7 +345,14 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
 
 /***** Ethernet interface bits *****/
 
-/* We need our own createInterface (overriding the one in IOEthernetController) because we need our own subclass of IOEthernetInterface.  Why's that, you say?  Well, we need that because that's the only way to set a different default MTU.  Sigh... */
+/* We need our own createInterface (overriding the one in IOEthernetController) 
+ * because we need our own subclass of IOEthernetInterface.  Why's that, you say?
+ * Well, we need that because that's the only way to set a different default MTU.
+ * Sigh...
+ * TODO(iakhiaev): This may not be necessary, because the devices I've seen
+ * have "max_transfer_size" large enough to accomodate a max-length Ethernet
+ * frame. But then I haven't seen the place that makes it required, so
+ * it may be safer to keep the this logic. */
 
 bool HoRNDISInterface::init(IONetworkController * controller, int mtu) {
 	maxmtu = mtu;
@@ -374,8 +381,12 @@ IONetworkInterface *HoRNDIS::createInterface() {
 	if (!netif) {
 		return NULL;
 	}
-	
-	if (!netif->init(this, mtu)) {
+
+	int mtuLimit = maxOutTransferSize
+		- (int)sizeof(rndis_data_hdr)
+		- 14;  // Size of ethernet header (no QLANs). Checksum is not included.
+
+	if (!netif->init(this, min(ETHERNET_MTU, mtuLimit))) {
 		netif->release();
 		return NULL;
 	}
@@ -716,7 +727,13 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 }
 
 IOReturn HoRNDIS::getMaxPacketSize(UInt32 * maxSize) const {
-	*maxSize = mtu;
+	IOReturn rc = super::getMaxPacketSize(maxSize);
+	if (rc != kIOReturnSuccess) {
+		return rc;
+	}
+	// The max packet size is limited by RNDIS max transfer size:
+	*maxSize = min(*maxSize, maxOutTransferSize - sizeof(rndis_data_hdr));
+	LOG(V_DEBUG, "returning %d", *maxSize);
 	return kIOReturnSuccess;
 }
 
@@ -874,9 +891,12 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	}
 	
 	LOG(V_PACKET, "%ld bytes", pktlen);
+
+	const uint32_t transmitLength = (uint32_t)(pktlen + sizeof(rndis_data_hdr));
 	
-	if (pktlen > (mtu + 14)) {
-		LOG(V_ERROR, "packet too large (%ld bytes, but I told you you could have %d!)", pktlen, mtu);
+	if (transmitLength > maxOutTransferSize) {
+		LOG(V_ERROR, "packet too large (%ld bytes, maximum can transmit %ld)",
+			pktlen, maxOutTransferSize - sizeof(rndis_data_hdr));
 		fpNetStats->outputErrors++;
 		freePacket(packet);
 		return kIOReturnOutputDropped;
@@ -901,7 +921,7 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	struct rndis_data_hdr *hdr;
 	hdr = (struct rndis_data_hdr *)outbufs[poolIndx].mdp->getBytesNoCopy();
 
-	const uint32_t transmitLength = (uint32_t)(pktlen + sizeof(*hdr));
+
 	outbufs[poolIndx].mdp->setLength(transmitLength);
 	
 	memset(hdr, 0, sizeof *hdr);
@@ -1290,21 +1310,19 @@ bool HoRNDIS::rndisInit() {
 
 	LOG(V_NOTE, "'%s': ver=%d.%d, max_packets_per_transer=%d, "
 		"max_transfer_size=%d, packet_alignment=2^%d",
-		fCommInterface->getDevice()->getName(), u.init_c->major_version,
-		u.init_c->minor_version, u.init_c->max_packets_per_transfer,
-		u.init_c->max_transfer_size, u.init_c->packet_alignment);
+		fCommInterface->getDevice()->getName(),
+		le32_to_cpu(u.init_c->major_version),
+		le32_to_cpu(u.init_c->minor_version),
+		le32_to_cpu(u.init_c->max_packets_per_transfer),
+		le32_to_cpu(u.init_c->max_transfer_size),
+		le32_to_cpu(u.init_c->packet_alignment));
 
-	// TODO(iakhiaev): 'max_tranfer_size' is not exactly the same as MTU.
-	// We should double-check this logic.
-	mtu = (uint32_t)(le32_to_cpu(u.init_c->max_transfer_size)
-					 - sizeof(struct rndis_data_hdr)
-					 - 36  // hard_header_len on Linux
-					 - 14  // ethernet headers
-					 );
-	if (mtu > MAX_MTU) {
-		mtu = MAX_MTU;
-	}
-	LOG(V_DEBUG, "their MTU %d", mtu);
+	maxOutTransferSize = le32_to_cpu(u.init_c->max_transfer_size);
+	// For now, let's limit the maxOutTransferSize by the Output Buffer size.
+	// If we implement transmitting multiple PDUs in a single USB transfer,
+	// we may want to size the output buffers based on
+	// "u.init_c->max_transfer_size".
+	maxOutTransferSize = min(maxOutTransferSize, OUT_BUF_SIZE);
 	
 	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
 	
