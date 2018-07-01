@@ -353,12 +353,13 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
 
 /* We need our own createInterface (overriding the one in IOEthernetController) 
  * because we need our own subclass of IOEthernetInterface.  Why's that, you say?
- * Well, we need that because that's the only way to set a different default MTU.
+ * Well, we need that because that's the only way to set a different default MTU,
+ * because it seems like MacOS code just assumes that any EthernetController
+ * driver must be able to handle al leaset 1500-byte Ethernet payload.
  * Sigh...
- * This may not be necessary, because the devices I've seen have 
- * "max_transfer_size" large enough to accomodate a max-length Ethernet
- * frame. But then I haven't seen the place that makes it required, so
- * it may be safer to keep the this logic. */
+ * The MTU-limiting code may never come into play though, because the devices
+ * I've seen have "max_transfer_size" large enough to accomodate a max-length 
+ * Ethernet frames. */
 
 bool HoRNDISInterface::init(IONetworkController * controller, int mtu) {
 	maxmtu = mtu;
