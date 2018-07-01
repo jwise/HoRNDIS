@@ -355,8 +355,8 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
  * because we need our own subclass of IOEthernetInterface.  Why's that, you say?
  * Well, we need that because that's the only way to set a different default MTU.
  * Sigh...
- * TODO(mikhailai): This may not be necessary, because the devices I've seen
- * have "max_transfer_size" large enough to accomodate a max-length Ethernet
+ * This may not be necessary, because the devices I've seen have 
+ * "max_transfer_size" large enough to accomodate a max-length Ethernet
  * frame. But then I haven't seen the place that makes it required, so
  * it may be safer to keep the this logic. */
 
@@ -762,7 +762,7 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	int rlen = -1;
 	int rv;
 	
-	buf = IOMalloc(RNDIS_CMD_BUF_SZ);
+	buf = IOMallocAligned(RNDIS_CMD_BUF_SZ, sizeof(void *));
 	if (!buf) {
 		return kIOReturnNoMemory;
 	}
@@ -773,7 +773,7 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	rv = rndisQuery(buf, OID_802_3_PERMANENT_ADDRESS, 48, (void **) &bp, &rlen);
 	if (rv < 0) {
 		LOG(V_ERROR, "getHardwareAddress OID failed?");
-		IOFree(buf, RNDIS_CMD_BUF_SZ);
+		IOFreeAligned(buf, RNDIS_CMD_BUF_SZ);
 		return kIOReturnIOError;
 	}
 	LOG(V_DEBUG, "MAC Address %02x:%02x:%02x:%02x:%02x:%02x -- rlen %d",
@@ -784,7 +784,7 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 		ea->bytes[i] = bp[i];
 	}
 	
-	IOFree(buf, RNDIS_CMD_BUF_SZ);
+	IOFreeAligned(buf, RNDIS_CMD_BUF_SZ);
 	return kIOReturnSuccess;
 }
 
@@ -929,7 +929,6 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	// Start filling in the send buffer
 	struct rndis_data_hdr *hdr;
 	hdr = (struct rndis_data_hdr *)outbufs[poolIndx].mdp->getBytesNoCopy();
-
 
 	outbufs[poolIndx].mdp->setLength(transmitLength);
 	
@@ -1128,11 +1127,6 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	int rc = kIOReturnSuccess;
 	const uint8_t ifNum = fCommInterface->getInterfaceDescriptor()->bInterfaceNumber;
 
-	// TODO(mikhailai): Get rid of this: copy back directly to our buffer.
-	IOBufferMemoryDescriptor *rxdsc =
-		IOBufferMemoryDescriptor::withCapacity(RNDIS_CMD_BUF_SZ, kIODirectionIn);
-	LOG(V_PTR, "PTR: rxdsc: %p", rxdsc);
-
 	if (buf->msg_type != RNDIS_MSG_HALT && buf->msg_type != RNDIS_MSG_RESET) {
 		// No need to lock here: multi-threading does not even come close
 		// (IOWorkLoop + IOGate are at our service):
@@ -1143,6 +1137,8 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		
 		LOG(V_DEBUG, "Generated xid: %d", le32_to_cpu(buf->request_id));
 	}
+	const uint32_t old_msg_type = buf->msg_type;
+	const uint32_t old_request_id = buf->request_id;
 	
 	{
 		DeviceRequest rq;
@@ -1154,10 +1150,13 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		rq.wLength = le32_to_cpu(buf->msg_len);
 	
 		uint32_t bytes_transferred;
-		if ((rc = fCommInterface->deviceRequest(rq, buf, bytes_transferred)) != kIOReturnSuccess ||
-			bytes_transferred != rq.wLength) {
+		if ((rc = fCommInterface->deviceRequest(rq, buf, bytes_transferred)) != kIOReturnSuccess) {
 			LOG(V_DEBUG, "Device request send error");
-			goto bailout;
+			return rc;
+		}
+		if (bytes_transferred != rq.wLength) {
+			LOG(V_DEBUG, "Incomplete device transfer");
+			return kIOReturnError;
 		}
 	}
 
@@ -1185,8 +1184,6 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	// Now we wait around a while for the device to get back to us.
 	int count;
 	for (count = 0; count < 10; count++) {
-		struct rndis_msg_hdr *rxbuf = (struct rndis_msg_hdr *) rxdsc->getBytesNoCopy();
-		memset(rxbuf, 0, RNDIS_CMD_BUF_SZ);
 		DeviceRequest rq;
 		rq.bmRequestType = kDeviceRequestDirectionIn |
 			kDeviceRequestTypeClass | kDeviceRequestRecipientInterface;
@@ -1196,39 +1193,48 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		rq.wLength = RNDIS_CMD_BUF_SZ;
 		
 		uint32_t bytes_transferred;
-		if ((rc = fCommInterface->deviceRequest(rq, rxdsc, bytes_transferred)) != kIOReturnSuccess) {
-			goto bailout;
+		if ((rc = fCommInterface->deviceRequest(rq, buf, bytes_transferred)) != kIOReturnSuccess) {
+			return rc;
 		}
 
-		if (bytes_transferred < 8) {
+		if (bytes_transferred < 12) {
 			LOG(V_ERROR, "short read on control request?");
 			IOSleep(20);
 			continue;
 		}
 		
-		if (rxbuf->msg_type == (buf->msg_type | RNDIS_MSG_COMPLETION)) {
-			if (rxbuf->request_id == buf->request_id) {
-				if (rxbuf->msg_type == RNDIS_MSG_RESET_C)
-					break;
-				if (rxbuf->status == RNDIS_STATUS_SUCCESS) {
-					// ...and copy it out!
-					LOG(V_DEBUG, "RNDIS command completed");
-					memcpy(buf, rxbuf, bytes_transferred);
+		if (buf->msg_type == (old_msg_type | RNDIS_MSG_COMPLETION)) {
+			if (buf->request_id == old_request_id) {
+				if (buf->msg_type == RNDIS_MSG_RESET_C) {
+					// This is probably incorrect: the RESET_C does not have
+					// 'request_id', but we don't issue resets => don't care.
 					break;
 				}
-				LOG(V_ERROR, "RNDIS command returned status %08x", rxbuf->status);
-				rc = -1;
+				if (buf->status != RNDIS_STATUS_SUCCESS) {
+					LOG(V_ERROR, "RNDIS command returned status %08x",
+						le32_to_cpu(buf->status));
+					rc = kIOReturnError;
+					break;
+				}
+				if (le32_to_cpu(buf->msg_len) != bytes_transferred) {
+					LOG(V_ERROR, "Message Length mismatch: expected: %d, actual: %d",
+						le32_to_cpu(buf->msg_len), bytes_transferred);
+					rc = kIOReturnError;
+					break;
+				}
+				LOG(V_DEBUG, "RNDIS command completed");
 				break;
 			} else {
 				LOG(V_ERROR, "RNDIS return had incorrect xid?");
 			}
 		} else {
-			if (rxbuf->msg_type == RNDIS_MSG_INDICATE) {
+			if (buf->msg_type == RNDIS_MSG_INDICATE) {
 				LOG(V_ERROR, "unsupported: RNDIS_MSG_INDICATE");	
-			} else if (rxbuf->msg_type == RNDIS_MSG_INDICATE) {
+			} else if (buf->msg_type == RNDIS_MSG_INDICATE) {
 				LOG(V_ERROR, "unsupported: RNDIS_MSG_KEEPALIVE");
 			} else {
-				LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x", rxbuf->msg_type, rxbuf->msg_len);
+				LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x",
+					le32_to_cpu(buf->msg_type), le32_to_cpu(buf->msg_len));
 			}
 		}
 		
@@ -1236,13 +1242,9 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	}
 	if (count == 10) {
 		LOG(V_ERROR, "command timed out?");
-		rc = kIOReturnTimeout;
+		return kIOReturnTimeout;
 	}
-	
-bailout:
-	rxdsc->complete();
-	rxdsc->release();
-	
+
 	return rc;
 }
 
@@ -1266,7 +1268,7 @@ int HoRNDIS::rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, 
 	u.get->len = cpu_to_le32(in_len);
 	u.get->offset = cpu_to_le32(20);
 	
-	rc = rndisCommand(u.hdr, 1025);
+	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "RNDIS_MSG_QUERY failure? %08x", rc);
 		return rc;
@@ -1276,7 +1278,7 @@ int HoRNDIS::rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, 
 	len = le32_to_cpu(u.get_c->len);
 	LOG(V_DEBUG, "RNDIS query completed");
 	
-	if ((8 + off + len) > 1025) {
+	if ((8 + off + len) > RNDIS_CMD_BUF_SZ) {
 		goto fmterr;
 	}
 	if (*reply_len != -1 && len != *reply_len) {
@@ -1296,14 +1298,13 @@ fmterr:
 bool HoRNDIS::rndisInit() {
 	int rc;
 	union {
-		void *buf;
 		struct rndis_msg_hdr *hdr;
 		struct rndis_init *init;
 		struct rndis_init_c *init_c;
 	} u;
 	
-	u.buf = IOMalloc(RNDIS_CMD_BUF_SZ);
-	if (!u.buf) {
+	u.hdr = (rndis_msg_hdr *)IOMallocAligned(RNDIS_CMD_BUF_SZ, sizeof(void *));
+	if (!u.hdr) {
 		LOG(V_ERROR, "out of memory?");
 		return false;
 	}
@@ -1317,7 +1318,7 @@ bool HoRNDIS::rndisInit() {
 	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "INIT not successful?");
-		IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+		IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 		return false;
 	}
 
@@ -1337,42 +1338,41 @@ bool HoRNDIS::rndisInit() {
 	// "u.init_c->max_transfer_size".
 	maxOutTransferSize = min(maxOutTransferSize, OUT_BUF_SIZE);
 	
-	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+	IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 	
 	return true;
 }
 
 bool HoRNDIS::rndisSetPacketFilter(uint32_t filter) {
 	union {
-		unsigned char *buf;
 		struct rndis_msg_hdr *hdr;
 		struct rndis_set *set;
 		struct rndis_set_c *set_c;
 	} u;
 	int rc;
 	
-	u.buf = (unsigned char *)IOMalloc(RNDIS_CMD_BUF_SZ);
-	if (!u.buf) {
+	u.hdr = (rndis_msg_hdr *)IOMallocAligned(RNDIS_CMD_BUF_SZ, sizeof(void *));
+	if (!u.hdr) {
 		LOG(V_ERROR, "out of memory?");
 		return false;;
 	}
 	
-	memset(u.buf, 0, sizeof *u.set);
+	memset(u.set, 0, sizeof *u.set);
 	u.set->msg_type = RNDIS_MSG_SET;
 	u.set->msg_len = cpu_to_le32(4 + sizeof *u.set);
 	u.set->oid = OID_GEN_CURRENT_PACKET_FILTER;
 	u.set->len = cpu_to_le32(4);
 	u.set->offset = cpu_to_le32((sizeof *u.set) - 8);
-	*(uint32_t *)(u.buf + sizeof *u.set) = filter;
+	*(uint32_t *)(u.set + 1) = filter;
 	
 	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "SET not successful?");
-		IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+		IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 		return false;
 	}
 	
-	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+	IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 	
 	return true;
 }
