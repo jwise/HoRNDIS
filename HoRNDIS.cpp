@@ -3,8 +3,7 @@
  * HoRNDIS, a RNDIS driver for Mac OS X
  *
  *   Copyright (c) 2012 Joshua Wise.
- *
- *   Modifications: Copyright (c) 2018 Mikhail Iakhiaev
+ *   Copyright (c) 2018 Mikhail Iakhiaev
  *
  * IOKit examples from Apple's USBCDCEthernet.cpp; not much of that code remains.
  *
@@ -36,6 +35,7 @@
 #include <IOKit/usb/IOUSBHostDevice.h>
 #include <IOKit/usb/IOUSBHostInterface.h>
 #include <IOKit/network/IOGatedOutputQueue.h>
+// May be useful for supporting suspend/resume:
 // #include <IOKit/pwr_mgt/RootDomain.h>
 
 
@@ -60,14 +60,14 @@ OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 
 
 // Detects the 224/1/3 - RNDIS control interface.
-static inline bool isRNDISControlInterface(const InterfaceDescriptor* idesc) {
+static inline bool isRNDISControlInterface(const InterfaceDescriptor *idesc) {
 	return idesc->bInterfaceClass == 224  // Wireless Controller
 		&& idesc->bInterfaceSubClass == 1  // Radio Frequency
 		&& idesc->bInterfaceProtocol == 3;  // RNDIS protocol
 }
 
 // Detects the class 10 - CDC data interface.
-static inline bool isCDCDataInterface(const InterfaceDescriptor* idesc) {
+static inline bool isCDCDataInterface(const InterfaceDescriptor *idesc) {
 	// Check for CDC class. Sub-class and Protocol are undefined:
 	return idesc->bInterfaceClass == 10;
 }
@@ -184,6 +184,12 @@ bool HoRNDIS::willTerminate(IOService *provider, IOOptionBits options) {
 	//
 	// Note, per comments in 'IOUSBHostInterface.h' (for some later version
 	// of MacOS SDK), this is the recommended place to close USB interfaces.
+	//
+	// This happens before ::stop, but after some of the read jobs fail
+	// with kIOReturnNotResponding (and some of the writers might fail,
+	// too).  ::disable happens sometime after we get done here, too --
+	// potentially invoked by super::willTerminate.
+	
 	disableNetworkQueue();
 	closeUSBInterfaces();
 
@@ -225,10 +231,10 @@ bool HoRNDIS::openUSBInterfaces(IOUSBHostInterface *controlInterface) {
 		const uint8_t controlIfNum = fCommInterface->getInterfaceDescriptor()->bInterfaceNumber;
 		IOUSBHostDevice *device = controlInterface->getDevice();
 	
-		OSIterator* iterator = device->getChildIterator(gIOServicePlane);
-		OSObject* candidate = NULL;
+		OSIterator *iterator = device->getChildIterator(gIOServicePlane);
+		OSObject *candidate = NULL;
 		while(iterator != NULL && (candidate = iterator->getNextObject()) != NULL) {
-			IOUSBHostInterface* interfaceCandidate =
+			IOUSBHostInterface *interfaceCandidate =
 				OSDynamicCast(IOUSBHostInterface, candidate);
 			if (interfaceCandidate == NULL) {
 				continue;
@@ -244,7 +250,8 @@ bool HoRNDIS::openUSBInterfaces(IOUSBHostInterface *controlInterface) {
 	}
 
 	if (!fDataInterface) {
-		LOG(V_ERROR, "could not find the data interface, despite seeing its descriptor");
+		LOG(V_ERROR, "could not find the data interface, despite seeing "
+			"its descriptor during 'probe' method call");
 		return false;
 	}
 
@@ -328,7 +335,7 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
 	// Now, search for data interface: if found, we're done:
 	bool foundData = false;
 	const ConfigurationDescriptor *confDesc = interface->getConfigurationDescriptor();
-	const InterfaceDescriptor* intDesc = NULL;
+	const InterfaceDescriptor *intDesc = NULL;
 	while((intDesc = StandardUSB::getNextInterfaceDescriptor(confDesc, intDesc)) != NULL) {
 		// Just in case an Android device has several CDC data interfaces, we would only
 		// pick the one that follows RIGHT AFTER the RNDIS interface:
@@ -353,14 +360,15 @@ IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
 
 /* We need our own createInterface (overriding the one in IOEthernetController) 
  * because we need our own subclass of IOEthernetInterface.  Why's that, you say?
- * Well, we need that because that's the only way to set a different default MTU.
+ * Well, we need that because that's the only way to set a different default MTU,
+ * because it seems like MacOS code just assumes that any EthernetController
+ * driver must be able to handle al leaset 1500-byte Ethernet payload.
  * Sigh...
- * TODO(mikhailai): This may not be necessary, because the devices I've seen
- * have "max_transfer_size" large enough to accomodate a max-length Ethernet
- * frame. But then I haven't seen the place that makes it required, so
- * it may be safer to keep the this logic. */
+ * The MTU-limiting code may never come into play though, because the devices
+ * I've seen have "max_transfer_size" large enough to accomodate a max-length 
+ * Ethernet frames. */
 
-bool HoRNDISInterface::init(IONetworkController * controller, int mtu) {
+bool HoRNDISInterface::init(IONetworkController *controller, int mtu) {
 	maxmtu = mtu;
 	if (IOEthernetInterface::init(controller) == false) {
 		return false;
@@ -382,7 +390,7 @@ bool HoRNDISInterface::setMaxTransferUnit(UInt32 mtu) {
 /* Overrides IOEthernetController::createInterface */
 IONetworkInterface *HoRNDIS::createInterface() {
 	LOG(V_DEBUG, ">");
-	HoRNDISInterface * netif = new HoRNDISInterface;
+	HoRNDISInterface *netif = new HoRNDISInterface;
 	
 	if (!netif) {
 		return NULL;
@@ -418,6 +426,8 @@ bool HoRNDIS::createNetworkInterface() {
 /***** Interface enable and disable logic *****/
 HoRNDIS::ReentryLocker::ReentryLocker(IOCommandGate *inGate, bool &inGuard)
 		: gate(inGate), entryGuard(inGuard), result(kIOReturnSuccess) {
+	// Note, please see header comment for the motivation behind
+	// 'ReentryLocker' and its high-level functionality.
 	// Wait until we exit the previously-entered enable or disable method:
 	while (entryGuard) {
 		LOG(V_DEBUG, "Delaying the re-entered call");
@@ -442,7 +452,7 @@ HoRNDIS::ReentryLocker::~ReentryLocker() {
  * Calls 'pipe->io', and if there is a stall, tries to clear that 
  * stall and calls it again.
  */
-static inline IOReturn robustIO(IOUSBHostPipe* pipe, pipebuf_t *buf,
+static inline IOReturn robustIO(IOUSBHostPipe *pipe, pipebuf_t *buf,
 	uint32_t len) {
 	IOReturn rc = pipe->io(buf->mdp, len, &buf->comp);
 	if (rc == kUSBHostReturnPipeStalled) {
@@ -523,7 +533,7 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Now we can say we're alive.
 	fNetifEnabled = true;
-	LOG(V_NOTE, "completed (thread_id=%lld): tethering interface '%s' "
+	LOG(V_NOTE, "completed (thread_id=%lld): RNDIS network interface '%s' "
 		"should be live now", thread_tid(current_thread()), netif->getName());
 	
 	return kIOReturnSuccess;
@@ -541,7 +551,7 @@ void HoRNDIS::disableNetworkQueue() {
 	getOutputQueue()->flush();
 }
 
-IOReturn HoRNDIS::disable(IONetworkInterface * netif) {
+IOReturn HoRNDIS::disable(IONetworkInterface *netif) {
 	LOG(V_DEBUG, "begin for thread_id=%lld", thread_tid(current_thread()));
 	// This function can be called as a consequence of:
 	//  1. USB Disconnect
@@ -683,7 +693,7 @@ void HoRNDIS::releaseResources() {
 	}
 }
 
-IOOutputQueue* HoRNDIS::createOutputQueue() {
+IOOutputQueue *HoRNDIS::createOutputQueue() {
 	LOG(V_DEBUG, ">");
 	// The gated Output Queue keeps things simple: everything is
 	// serialized, no need to worry about locks or concurrency.
@@ -736,7 +746,7 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 	return rtn;
 }
 
-IOReturn HoRNDIS::getMaxPacketSize(UInt32 * maxSize) const {
+IOReturn HoRNDIS::getMaxPacketSize(UInt32 *maxSize) const {
 	IOReturn rc = super::getMaxPacketSize(maxSize);
 	if (rc != kIOReturnSuccess) {
 		return rc;
@@ -762,7 +772,7 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	int rlen = -1;
 	int rv;
 	
-	buf = IOMalloc(RNDIS_CMD_BUF_SZ);
+	buf = IOMallocAligned(RNDIS_CMD_BUF_SZ, sizeof(void *));
 	if (!buf) {
 		return kIOReturnNoMemory;
 	}
@@ -773,7 +783,7 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	rv = rndisQuery(buf, OID_802_3_PERMANENT_ADDRESS, 48, (void **) &bp, &rlen);
 	if (rv < 0) {
 		LOG(V_ERROR, "getHardwareAddress OID failed?");
-		IOFree(buf, RNDIS_CMD_BUF_SZ);
+		IOFreeAligned(buf, RNDIS_CMD_BUF_SZ);
 		return kIOReturnIOError;
 	}
 	LOG(V_DEBUG, "MAC Address %02x:%02x:%02x:%02x:%02x:%02x -- rlen %d",
@@ -784,7 +794,7 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 		ea->bytes[i] = bp[i];
 	}
 	
-	IOFree(buf, RNDIS_CMD_BUF_SZ);
+	IOFreeAligned(buf, RNDIS_CMD_BUF_SZ);
 	return kIOReturnSuccess;
 }
 
@@ -795,8 +805,7 @@ IOReturn HoRNDIS::setPromiscuousMode(bool active) {
 }
 
 // TODO(mikhailai): Test and possibly fix suspend and resume.
-
-/*
+#if 0
 IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 	//IOReturn	ior;
 	switch (type) {
@@ -865,7 +874,7 @@ IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
 	LOG(V_ERROR, "###################### Received the message: %d, ", type);
 	return super::message(type, provider, argument);
 }
-*/
+#endif
 
 
 /***** Packet transmit logic *****/
@@ -929,7 +938,6 @@ UInt32 HoRNDIS::outputPacket(mbuf_t packet, void *param) {
 	// Start filling in the send buffer
 	struct rndis_data_hdr *hdr;
 	hdr = (struct rndis_data_hdr *)outbufs[poolIndx].mdp->getBytesNoCopy();
-
 
 	outbufs[poolIndx].mdp->setLength(transmitLength);
 	
@@ -1126,12 +1134,11 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 
 IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	int rc = kIOReturnSuccess;
+	if (!fCommInterface) {  // Safety: make sure 'fCommInterface' is valid.
+		LOG(V_ERROR, "fCommInterface is NULL, bailing out");
+		return kIOReturnError;
+	}
 	const uint8_t ifNum = fCommInterface->getInterfaceDescriptor()->bInterfaceNumber;
-
-	// TODO(mikhailai): Get rid of this: copy back directly to our buffer.
-	IOBufferMemoryDescriptor *rxdsc =
-		IOBufferMemoryDescriptor::withCapacity(RNDIS_CMD_BUF_SZ, kIODirectionIn);
-	LOG(V_PTR, "PTR: rxdsc: %p", rxdsc);
 
 	if (buf->msg_type != RNDIS_MSG_HALT && buf->msg_type != RNDIS_MSG_RESET) {
 		// No need to lock here: multi-threading does not even come close
@@ -1143,6 +1150,8 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		
 		LOG(V_DEBUG, "Generated xid: %d", le32_to_cpu(buf->request_id));
 	}
+	const uint32_t old_msg_type = buf->msg_type;
+	const uint32_t old_request_id = buf->request_id;
 	
 	{
 		DeviceRequest rq;
@@ -1154,10 +1163,13 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		rq.wLength = le32_to_cpu(buf->msg_len);
 	
 		uint32_t bytes_transferred;
-		if ((rc = fCommInterface->deviceRequest(rq, buf, bytes_transferred)) != kIOReturnSuccess ||
-			bytes_transferred != rq.wLength) {
+		if ((rc = fCommInterface->deviceRequest(rq, buf, bytes_transferred)) != kIOReturnSuccess) {
 			LOG(V_DEBUG, "Device request send error");
-			goto bailout;
+			return rc;
+		}
+		if (bytes_transferred != rq.wLength) {
+			LOG(V_DEBUG, "Incomplete device transfer");
+			return kIOReturnError;
 		}
 	}
 
@@ -1185,8 +1197,6 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	// Now we wait around a while for the device to get back to us.
 	int count;
 	for (count = 0; count < 10; count++) {
-		struct rndis_msg_hdr *rxbuf = (struct rndis_msg_hdr *) rxdsc->getBytesNoCopy();
-		memset(rxbuf, 0, RNDIS_CMD_BUF_SZ);
 		DeviceRequest rq;
 		rq.bmRequestType = kDeviceRequestDirectionIn |
 			kDeviceRequestTypeClass | kDeviceRequestRecipientInterface;
@@ -1194,41 +1204,56 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		rq.wValue = 0;
 		rq.wIndex = ifNum;
 		rq.wLength = RNDIS_CMD_BUF_SZ;
-		
+
+		// Make sure 'fCommInterface' was not taken away from us while
+		// we were doing synchronous IO:
+		if (!fCommInterface) {
+			LOG(V_ERROR, "fCommInterface was closed, bailing out");
+			return kIOReturnError;
+		}
 		uint32_t bytes_transferred;
-		if ((rc = fCommInterface->deviceRequest(rq, rxdsc, bytes_transferred)) != kIOReturnSuccess) {
-			goto bailout;
+		if ((rc = fCommInterface->deviceRequest(rq, buf, bytes_transferred)) != kIOReturnSuccess) {
+			return rc;
 		}
 
-		if (bytes_transferred < 8) {
+		if (bytes_transferred < 12) {
 			LOG(V_ERROR, "short read on control request?");
 			IOSleep(20);
 			continue;
 		}
 		
-		if (rxbuf->msg_type == (buf->msg_type | RNDIS_MSG_COMPLETION)) {
-			if (rxbuf->request_id == buf->request_id) {
-				if (rxbuf->msg_type == RNDIS_MSG_RESET_C)
-					break;
-				if (rxbuf->status == RNDIS_STATUS_SUCCESS) {
-					// ...and copy it out!
-					LOG(V_DEBUG, "RNDIS command completed");
-					memcpy(buf, rxbuf, bytes_transferred);
+		if (buf->msg_type == (old_msg_type | RNDIS_MSG_COMPLETION)) {
+			if (buf->request_id == old_request_id) {
+				if (buf->msg_type == RNDIS_MSG_RESET_C) {
+					// This is probably incorrect: the RESET_C does not have
+					// 'request_id', but we don't issue resets => don't care.
 					break;
 				}
-				LOG(V_ERROR, "RNDIS command returned status %08x", rxbuf->status);
-				rc = -1;
+				if (buf->status != RNDIS_STATUS_SUCCESS) {
+					LOG(V_ERROR, "RNDIS command returned status %08x",
+						le32_to_cpu(buf->status));
+					rc = kIOReturnError;
+					break;
+				}
+				if (le32_to_cpu(buf->msg_len) != bytes_transferred) {
+					LOG(V_ERROR, "Message Length mismatch: expected: %d, actual: %d",
+						le32_to_cpu(buf->msg_len), bytes_transferred);
+					rc = kIOReturnError;
+					break;
+				}
+				LOG(V_DEBUG, "RNDIS command completed");
 				break;
 			} else {
 				LOG(V_ERROR, "RNDIS return had incorrect xid?");
 			}
 		} else {
-			if (rxbuf->msg_type == RNDIS_MSG_INDICATE) {
+			if (buf->msg_type == RNDIS_MSG_INDICATE) {
 				LOG(V_ERROR, "unsupported: RNDIS_MSG_INDICATE");	
-			} else if (rxbuf->msg_type == RNDIS_MSG_INDICATE) {
+			} else if (buf->msg_type == RNDIS_MSG_INDICATE) {
 				LOG(V_ERROR, "unsupported: RNDIS_MSG_KEEPALIVE");
 			} else {
-				LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x", rxbuf->msg_type, rxbuf->msg_len);
+				LOG(V_ERROR, "unexpected msg type %08x, msg_len %08x",
+					le32_to_cpu(buf->msg_type), le32_to_cpu(buf->msg_len));
 			}
 		}
 		
@@ -1236,13 +1261,9 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	}
 	if (count == 10) {
 		LOG(V_ERROR, "command timed out?");
-		rc = kIOReturnTimeout;
+		return kIOReturnTimeout;
 	}
-	
-bailout:
-	rxdsc->complete();
-	rxdsc->release();
-	
+
 	return rc;
 }
 
@@ -1266,7 +1287,7 @@ int HoRNDIS::rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, 
 	u.get->len = cpu_to_le32(in_len);
 	u.get->offset = cpu_to_le32(20);
 	
-	rc = rndisCommand(u.hdr, 1025);
+	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "RNDIS_MSG_QUERY failure? %08x", rc);
 		return rc;
@@ -1276,7 +1297,7 @@ int HoRNDIS::rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, 
 	len = le32_to_cpu(u.get_c->len);
 	LOG(V_DEBUG, "RNDIS query completed");
 	
-	if ((8 + off + len) > 1025) {
+	if ((8 + off + len) > RNDIS_CMD_BUF_SZ) {
 		goto fmterr;
 	}
 	if (*reply_len != -1 && len != *reply_len) {
@@ -1296,14 +1317,13 @@ fmterr:
 bool HoRNDIS::rndisInit() {
 	int rc;
 	union {
-		void *buf;
 		struct rndis_msg_hdr *hdr;
 		struct rndis_init *init;
 		struct rndis_init_c *init_c;
 	} u;
 	
-	u.buf = IOMalloc(RNDIS_CMD_BUF_SZ);
-	if (!u.buf) {
+	u.hdr = (rndis_msg_hdr *)IOMallocAligned(RNDIS_CMD_BUF_SZ, sizeof(void *));
+	if (!u.hdr) {
 		LOG(V_ERROR, "out of memory?");
 		return false;
 	}
@@ -1317,18 +1337,20 @@ bool HoRNDIS::rndisInit() {
 	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "INIT not successful?");
-		IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+		IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 		return false;
 	}
 
-	LOG(V_NOTE, "'%s': ver=%d.%d, max_packets_per_transer=%d, "
-		"max_transfer_size=%d, packet_alignment=2^%d",
-		fCommInterface->getDevice()->getName(),
-		le32_to_cpu(u.init_c->major_version),
-		le32_to_cpu(u.init_c->minor_version),
-		le32_to_cpu(u.init_c->max_packets_per_transfer),
-		le32_to_cpu(u.init_c->max_transfer_size),
-		le32_to_cpu(u.init_c->packet_alignment));
+	if (fCommInterface) {  // Safety: don't accesss 'fCommInterface if NULL.
+		LOG(V_NOTE, "'%s': ver=%d.%d, max_packets_per_transfer=%d, "
+			"max_transfer_size=%d, packet_alignment=2^%d",
+			fCommInterface->getDevice()->getName(),
+			le32_to_cpu(u.init_c->major_version),
+			le32_to_cpu(u.init_c->minor_version),
+			le32_to_cpu(u.init_c->max_packets_per_transfer),
+			le32_to_cpu(u.init_c->max_transfer_size),
+			le32_to_cpu(u.init_c->packet_alignment));
+	}
 
 	maxOutTransferSize = le32_to_cpu(u.init_c->max_transfer_size);
 	// For now, let's limit the maxOutTransferSize by the Output Buffer size.
@@ -1337,42 +1359,41 @@ bool HoRNDIS::rndisInit() {
 	// "u.init_c->max_transfer_size".
 	maxOutTransferSize = min(maxOutTransferSize, OUT_BUF_SIZE);
 	
-	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+	IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 	
 	return true;
 }
 
 bool HoRNDIS::rndisSetPacketFilter(uint32_t filter) {
 	union {
-		unsigned char *buf;
 		struct rndis_msg_hdr *hdr;
 		struct rndis_set *set;
 		struct rndis_set_c *set_c;
 	} u;
 	int rc;
 	
-	u.buf = (unsigned char *)IOMalloc(RNDIS_CMD_BUF_SZ);
-	if (!u.buf) {
+	u.hdr = (rndis_msg_hdr *)IOMallocAligned(RNDIS_CMD_BUF_SZ, sizeof(void *));
+	if (!u.hdr) {
 		LOG(V_ERROR, "out of memory?");
 		return false;;
 	}
 	
-	memset(u.buf, 0, sizeof *u.set);
+	memset(u.set, 0, sizeof *u.set);
 	u.set->msg_type = RNDIS_MSG_SET;
 	u.set->msg_len = cpu_to_le32(4 + sizeof *u.set);
 	u.set->oid = OID_GEN_CURRENT_PACKET_FILTER;
 	u.set->len = cpu_to_le32(4);
 	u.set->offset = cpu_to_le32((sizeof *u.set) - 8);
-	*(uint32_t *)(u.buf + sizeof *u.set) = filter;
+	*(uint32_t *)(u.set + 1) = filter;
 	
 	rc = rndisCommand(u.hdr, RNDIS_CMD_BUF_SZ);
 	if (rc != kIOReturnSuccess) {
 		LOG(V_ERROR, "SET not successful?");
-		IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+		IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 		return false;
 	}
 	
-	IOFree(u.buf, RNDIS_CMD_BUF_SZ);
+	IOFreeAligned(u.hdr, RNDIS_CMD_BUF_SZ);
 	
 	return true;
 }

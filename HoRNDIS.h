@@ -3,8 +3,7 @@
  * HoRNDIS, a RNDIS driver for Mac OS X
  *
  *   Copyright (c) 2012 Joshua Wise.
- *
- *   Modifications: Copyright (c) 2018 Mikhail Iakhiaev
+ *   Copyright (c) 2018 Mikhail Iakhiaev
  *
  * IOKit examples from Apple's USBCDCEthernet.cpp; not much of that code remains.
  *
@@ -53,6 +52,8 @@ extern "C"
 
 #define cpu_to_le32(x) OSSwapHostToLittleInt32(x)
 #define le32_to_cpu(x) OSSwapLittleToHostInt32(x)
+// Helps to avoid including private classes and methods into the symbol table.
+#define NOEXPORT	__attribute__((visibility("hidden")))
 
 // REFERENCES:
 // [MS-RNDIS]: Remote Network Driver Interface Specification (RNDIS) Protocol
@@ -61,7 +62,7 @@ extern "C"
 //   https://docs.microsoft.com/en-us/windows-hardware/drivers/network/remote-ndis-to-usb-mapping
 
 #define TRANSMIT_QUEUE_SIZE     256
-#define OUT_BUF_SIZE			4096
+#define OUT_BUF_SIZE            4096
 
 // Per [MS-RNDIS], description of REMOTE_NDIS_INITIALIZE_MSG:
 //    "MaxTransferSize (4 bytes): ... It SHOULD be set to 0x00004000"
@@ -69,22 +70,23 @@ extern "C"
 // Also, some Android versions (e.g. 8.1.0 on Pixel 2) seem to ignore
 // "max_transfer_size" in "REMOTE_NDIS_INITIALIZE_MSG" and use packets up to
 // 16K regardless.
-#define IN_BUF_SIZE				16384
+#define IN_BUF_SIZE             16384
 
-#define N_OUT_BUFS         4
+#define N_OUT_BUFS              4
 // The N_IN_BUFS value should either be 1 or 2.
 // 2 - double-buffering enabled, 1 - double-buffering disabled: single reader.
 // NOTE: surprisingly, single-buffer overall performs better, probably due to
 // less contention on the USB2 bus, which is half-duplex.
-#define N_IN_BUFS			1
+#define N_IN_BUFS               1
 
 // Maximum payload size in a standard (non-jumbo) Ethernet frame.
-#define ETHERNET_MTU 1500
+#define ETHERNET_MTU            1500
 
 /***** RNDIS definitions -- from linux/include/linux/usb/rndis_host.h ****/
 
-// TODO(mikhailai): Should we set to 1024, as per RNDIS spec?
-#define RNDIS_CMD_BUF_SZ 1052
+// Per [MSDN-RNDISUSB], "Control Channel Characteristics", it's the minumim
+// buffer size the host should support (and it's way bigger than we need).
+#define RNDIS_CMD_BUF_SZ		0x400
 
 struct rndis_msg_hdr {
 	uint32_t msg_type;
@@ -258,7 +260,7 @@ private:
 	 * to "sneak in". We use the "ReentryLocker" to delay additional
 	 * enable/disable calls until the first one completes.
 	 */
-	class ReentryLocker {
+	class NOEXPORT ReentryLocker {
 	public:
 		// 'inGuard' is instance-level variable that would be set by
 		// "ReentryLocker" whenever someone is executing the protected section.
@@ -333,7 +335,7 @@ public:
 	virtual void free() override;
 	virtual IOService *probe(IOService *provider, SInt32 *score) override;
 	virtual bool start(IOService *provider) override;
-	virtual bool willTerminate(IOService * provider, IOOptionBits options) override;
+	virtual bool willTerminate(IOService *provider, IOOptionBits options) override;
 	virtual void stop(IOService *provider) override;
 
 	// virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0) override;
@@ -341,7 +343,7 @@ public:
 	// IOEthernetController overrides
 	virtual IOOutputQueue *createOutputQueue(void) override;
 	virtual IOReturn getHardwareAddress(IOEthernetAddress *addr) override;
-	virtual IOReturn getMaxPacketSize(UInt32 * maxSize) const override;
+	virtual IOReturn getMaxPacketSize(UInt32 *maxSize) const override;
 	virtual IOReturn getPacketFilters(const OSSymbol *group,
 									  UInt32 *filters ) const  override;
 	virtual IONetworkInterface *createInterface() override;
@@ -358,6 +360,6 @@ class HoRNDISInterface : public IOEthernetInterface {
 	OSDeclareDefaultStructors(HoRNDISInterface);
 	int maxmtu;
 public:
-	virtual bool init(IONetworkController * controller, int mtu);
+	virtual bool init(IONetworkController *controller, int mtu);
 	virtual bool setMaxTransferUnit(UInt32 mtu) override;
 };
