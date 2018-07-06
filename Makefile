@@ -31,7 +31,7 @@ else ifeq (none,$(CODESIGN_INST))
     CODESIGN_INST :=
 endif
 
-all: build/Release/HoRNDIS.kext build/_complete
+all: build/Release/HoRNDIS.kext build/pkg/_complete
 
 clean:
 	rm -rf build
@@ -40,16 +40,16 @@ clean:
 build/Release/HoRNDIS.kext: $(wildcard *.cpp *.h *.plist HoRNDIS.xcodeproj/* *.lproj/*)
 	$(XCODEBUILD) -project HoRNDIS.xcodeproj
 
-build/root: build/Release/HoRNDIS.kext
-	rm -rf build/root
-	mkdir -p build/root/Library/Extensions
-	cp -R build/Release/HoRNDIS.kext build/root/Library/Extensions/
+build/pkg/root: build/Release/HoRNDIS.kext
+	rm -rf build/pkg/
+	mkdir -p build/pkg/root/Library/Extensions
+	cp -R build/Release/HoRNDIS.kext build/pkg/root/Library/Extensions/
 
-build/HoRNDIS-kext.pkg: build/root
+build/pkg/HoRNDIS-kext.pkg: build/pkg/root
 	pkgbuild --identifier com.joshuawise.kexts.HoRNDIS --root $< $@
 
 # The variable is to be resolved first time it's used:
 VERSION = $(shell defaults read $(PWD)/build/Release/HoRNDIS.kext/Contents/Info.plist CFBundleVersion)
 
-build/_complete: build/HoRNDIS-kext.pkg $(wildcard package/*)
-	productbuild --distribution package/Distribution.xml --package-path build --resources package --version $(VERSION) $(if $(CODESIGN_INST),--sign $(CODESIGN_INST)) build/HoRNDIS-$(VERSION).pkg && touch build/_complete
+build/pkg/_complete: build/pkg/HoRNDIS-kext.pkg $(wildcard package/*)
+	productbuild --distribution package/Distribution.xml --package-path build/pkg --resources package --version $(VERSION) $(if $(CODESIGN_INST),--sign $(CODESIGN_INST)) build/HoRNDIS-$(VERSION).pkg && touch build/pkg/_complete
