@@ -8,10 +8,12 @@
 # SDK directory under:
 # /Applications/Xcode-7.3.1.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/
 
+-include localconfig.mk
+
 # Can be set from the environment:
 HORNDIS_XCODE ?= /Applications/Xcode*$(XCODE_VER).app
 
-XCODE_VER = 7.3.1
+XCODE_VER ?= 7.3.1
 XCODEBUILD ?= $(wildcard $(HORNDIS_XCODE)/Contents/Developer/usr/bin/xcodebuild)
 
 ifeq (,$(XCODEBUILD))
