@@ -30,6 +30,7 @@
 #include "HoRNDIS.h"
 
 #include <mach/kmod.h>
+#include <libkern/version.h>
 #include <IOKit/IOKitKeys.h>
 
 #include <IOKit/usb/IOUSBHostDevice.h>
@@ -120,6 +121,46 @@ void HoRNDIS::free() {
 	super::free();
 }
 
+static void maybeApplyElCapitanFix(IONetworkController *horndis) {
+	// PROBLEM:
+	//   Network interface proliferation on El Capitan, that does not
+	//   happen on Sierra or later.
+	// ROOT CAUSE:
+	//   Android devices randomly-generate Ethernet MAC address for
+	//   RNDIS interface, so the system may think there is a new device
+	//   every time you connect an Android phone, and may create a new
+	//   network interface every such time.
+	//   Luckily, it does extra check when Network Provider is a USB device:
+	//   in that case, it would match based on USB data, creating an entry like:
+	//	    <key>SCNetworkInterfaceInfo</key>
+	//      <dict>
+	//          <key>USB Product Name</key>
+	//          <string>Pixel 2</string>
+	//          <key>UserDefinedName</key>
+	//          <string>Pixel 2</string>
+	//          <key>idProduct</key>
+	//          <integer>20195</integer>
+	//          ...
+	//   In: /Library/Preferences/SystemConfiguration/NetworkInterfaces.plist
+	//   When that works, interfaces do not proliferate.
+	// EL CAPITAN PROBLEM:
+	//    The buggy system network daemon (or whatever it is) checks for the
+	//    interface's "IOProviderClass" to be either IOUSBDevice or
+	//    IOUSBInterface - it has not been updated for the new IOUSBHostDevice
+	//    and IOUSBHostInterface names.
+	// FIX/HACK:
+	//    Just set the provider class property to be IOUSBInterface, instead
+	//    of IOUSBHostInterface. This fixes the network logic, and hopefully
+	//    does not break anything else.
+	if (version_major == 15) {  // This is El Cap Kernel version number.
+		LOG(V_NOTE, "Applying El Capitan Fix: setting 'IOProviderClass' "
+			"property to 'IOUSBInterface'");
+		OSString *str = OSString::withCString("IOUSBInterface");
+		horndis->setProperty(kIOProviderClassKey, str);
+		str->release();
+	}
+}
+
 bool HoRNDIS::start(IOService *provider) {
 	LOG(V_DEBUG, ">");
 
@@ -149,7 +190,8 @@ bool HoRNDIS::start(IOService *provider) {
 	// NOTE: The RNDIS spec mandates the usage of Keep Alive timer; however,
 	// the Android does not seem to be missing its absense, so there is
 	// probably no use in implementing it.
-	
+
+	maybeApplyElCapitanFix(this);
 	LOG(V_DEBUG, "done with RNDIS initialization: can start network interface");
 
 	// Let's create the medium tables here, to avoid doing extra
