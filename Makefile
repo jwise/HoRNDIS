@@ -48,7 +48,7 @@ build/pkg/root: build/Release/HoRNDIS.kext
 	cp -R build/Release/HoRNDIS.kext build/pkg/root/Library/Extensions/
 
 build/pkg/HoRNDIS-kext.pkg: build/pkg/root
-	pkgbuild --identifier com.joshuawise.kexts.HoRNDIS --root $< $@
+	pkgbuild --identifier com.joshuawise.kexts.HoRNDIS --scripts package/scripts --root $< $@
 
 # The variable is to be resolved first time it's used:
 VERSION = $(shell defaults read $(PWD)/build/Release/HoRNDIS.kext/Contents/Info.plist CFBundleVersion)
