@@ -777,10 +777,9 @@ IOReturn HoRNDIS::getPacketFilters(const OSSymbol *group, UInt32 *filters) const
 	if (group == gIOEthernetWakeOnLANFilterGroup) {
 		*filters = 0;
 	} else if (group == gIONetworkFilterGroup) {
-		// Not yet supporting Multicast: need more code for proper support.
-		// kIOPacketFilterMulticast
 		*filters = kIOPacketFilterUnicast | kIOPacketFilterBroadcast
-			| kIOPacketFilterPromiscuous;
+			| kIOPacketFilterPromiscuous | kIOPacketFilterMulticast
+			| kIOPacketFilterMulticastAll;
 	} else {
 		rtn = super::getPacketFilters(group, filters);
 	}
@@ -840,7 +839,23 @@ IOReturn HoRNDIS::getHardwareAddress(IOEthernetAddress *ea) {
 	return kIOReturnSuccess;
 }
 
+IOReturn HoRNDIS::setMulticastMode(bool active) {
+	// For 'real' RNDIS devices, this should toggle
+	// RNDIS_PACKET_TYPE_ALL_MULTICAST or RNDIS_PACKET_TYPE_MULTICAST
+	// via 'rndisSetPacketFilter', but Android/Linux kernel
+	// doesn't care, so why should we?
+	return kIOReturnSuccess;
+}
+
+IOReturn HoRNDIS::setMulticastList(IOEthernetAddress *addrs,
+	                            UInt32             count) {
+	// "Honey Badger don't care". We're using MULTICAST_ALL flag: everything
+	// gets passed through.
+	return kIOReturnSuccess;
+}
+
 IOReturn HoRNDIS::setPromiscuousMode(bool active) {
+	// Similar to 'setMulticastMode'.
 	// XXX This actually needs to get passed down to support 'real'
 	//  RNDIS devices, but it will work okay for Android devices.
 	return kIOReturnSuccess;

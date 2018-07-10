@@ -352,6 +352,9 @@ public:
 	virtual IOReturn enable(IONetworkInterface *netif) override;
 	virtual IOReturn disable(IONetworkInterface *netif) override;
 	virtual IOReturn selectMedium(const IONetworkMedium *medium) override;
+	virtual IOReturn setMulticastMode(bool active) override;
+	virtual IOReturn setMulticastList(IOEthernetAddress *addrs,
+	                                  UInt32             count) override;
 	virtual IOReturn setPromiscuousMode(bool active) override;
 	virtual UInt32 outputPacket(mbuf_t pkt, void *param) override;
 };
