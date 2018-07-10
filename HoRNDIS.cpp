@@ -207,6 +207,11 @@ bool HoRNDIS::start(IOService *provider) {
 	if (!createNetworkInterface()) {
 		goto bailout;
 	}
+
+	// This call is based on traces of Thunderbolt Ethernet driver.
+	// That driver calls 'setLinkStatus(0x1)' before interface publish 
+	// callback (which happens after 'start').
+	setLinkStatus(kIONetworkLinkValid);
 	
 	LOG(V_DEBUG, "successful");
 	return true;
@@ -459,8 +464,9 @@ bool HoRNDIS::createNetworkInterface() {
 		return false;
 	}
 	LOG(V_PTR, "fNetworkInterface: %p", fNetworkInterface);
-	
-	fNetworkInterface->registerService();
+
+	// The 'registerService' should be called by 'attachInterface' (with second
+	// parameter set to true). No need to do it here.
 	
 	return true;	
 }
@@ -490,6 +496,20 @@ HoRNDIS::ReentryLocker::~ReentryLocker() {
 	}
 }
 
+static IOReturn loopClearPipeStall(IOUSBHostPipe *pipe) {
+	IOReturn rc = kUSBHostReturnPipeStalled;
+	int count = 0;
+	// For some reason, 'clearStall' may keep on returning
+	// kUSBHostReturnPipeStalled many times, before finally returning success
+	// (Android keeps on sending packtes, each generating a stall?).
+	const int NUM_RETRIES = 1000;
+	for (; count < NUM_RETRIES && rc == kUSBHostReturnPipeStalled; count++) {
+		rc = pipe->clearStall(true);
+	}
+	LOG(V_DEBUG, "Called 'clearStall' %d times", count);
+	return rc;
+}
+
 /*!
  * Calls 'pipe->io', and if there is a stall, tries to clear that 
  * stall and calls it again.
@@ -498,13 +518,13 @@ static inline IOReturn robustIO(IOUSBHostPipe *pipe, pipebuf_t *buf,
 	uint32_t len) {
 	IOReturn rc = pipe->io(buf->mdp, len, &buf->comp);
 	if (rc == kUSBHostReturnPipeStalled) {
-		LOG(V_DEBUG, "USB Input Pipe is stalled. Clearing and re-trying");
-		rc = pipe->clearStall(true);
-		if (rc != kIOReturnSuccess) {
-			LOG(V_ERROR, "Failed to clear pipe stall: %08x", rc);
-			// Don't fail if 'clearStall' does not work.
+		LOG(V_DEBUG, "USB Pipe is stalled. Trying to clear ...");
+		rc = loopClearPipeStall(pipe);
+		// If clearing the stall succeeded, try the IO operation again:
+		if (rc == kIOReturnSuccess) {
+			LOG(V_DEBUG, "Cleared USB Stall, Retrying the operation");
+			rc = pipe->io(buf->mdp, len, &buf->comp);
 		}
-		rc = pipe->io(buf->mdp, len, &buf->comp);
 	}
 	return rc;
 }
@@ -542,6 +562,14 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 		goto bailout;
 	}
 
+	// The pipe stall clearning is not needed for the first "enable" call after
+	// pugging in the device, but it becomes necessary when "disable" is called
+	// after that, followed by another "enable". This happens when user runs
+	// "sudo ifconfig <netif> down", followed by "sudo ifconfig <netif> up"
+	LOG(V_DEBUG, "Clearing potential Pipe stalls on Input and Output pipes");
+	loopClearPipeStall(fInPipe);
+	loopClearPipeStall(fOutPipe);
+
 	// We can now perform reads and writes between Network stack and USB device:
 	fReadyToTransfer = true;
 	
@@ -562,7 +590,7 @@ IOReturn HoRNDIS::enable(IONetworkInterface *netif) {
 
 	// Tell the world that the link is up...
 	if (!setLinkStatus(kIONetworkLinkActive | kIONetworkLinkValid,
-			getCurrentMedium(), getCurrentMedium()->getSpeed())) {
+			getCurrentMedium())) {
 		LOG(V_ERROR, "Cannot set link status");
 		rtn = kIOReturnError;
 		goto bailout;
@@ -589,8 +617,8 @@ void HoRNDIS::disableNetworkQueue() {
 	// Disable the queue (no more outputPacket),
 	// and then flush everything in the queue.
 	getOutputQueue()->stop();
-	getOutputQueue()->setCapacity(0);
 	getOutputQueue()->flush();
+	getOutputQueue()->setCapacity(0);
 }
 
 IOReturn HoRNDIS::disable(IONetworkInterface *netif) {
@@ -626,9 +654,15 @@ void HoRNDIS::disableImpl() {
 	// Stop the the new transfers. The code below would cancel the pending ones:
 	fReadyToTransfer = false;
 
-	// TODO(mikhailai): Repeated enable/disable (ifconfig up/down)
-	// does not work: investigate!
-	
+	// If the device has not been disconnected, ask it to stop xmitting:
+	if (fCommInterface) {
+		rndisSetPacketFilter(0);
+	}
+
+	// Again, based on Thunderbolt Ethernet controller traces.
+	// It sets the link status to 0x1 in the disable call:
+	setLinkStatus(kIONetworkLinkValid, 0);
+
 	// If USB interfaces are still up, abort the reader and writer:
 	if (fInPipe) {
 		fInPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
@@ -638,14 +672,6 @@ void HoRNDIS::disableImpl() {
 		fOutPipe->abort(IOUSBHostIOSource::kAbortSynchronous,
 			kIOReturnAborted, NULL);
 	}
-
-	setLinkStatus(0, 0);
-
-	// If the device has not been disconnected, ask it to stop xmitting:
-	if (fCommInterface) {
-		rndisSetPacketFilter(0);
-	}
-
 	// Make sure all the callbacks have exited:
 	LOG(V_DEBUG, "Callback count: %d. If not zero, delaying ...",
 		fCallbackCount);
