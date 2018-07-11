@@ -60,11 +60,23 @@ OSDefineMetaClassAndStructors(HoRNDIS, IOEthernetController);
 OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 
 
-// Detects the 224/1/3 - RNDIS control interface.
-static inline bool isRNDISControlInterface(const InterfaceDescriptor *idesc) {
+// Detects the 224/1/3 - stock Android RNDIS control interface.
+static inline bool isRNDISControlStockAndroid(const InterfaceDescriptor *idesc) {
 	return idesc->bInterfaceClass == 224  // Wireless Controller
 		&& idesc->bInterfaceSubClass == 1  // Radio Frequency
 		&& idesc->bInterfaceProtocol == 3;  // RNDIS protocol
+}
+
+// Detects RNDIS control on BeagleBoard and possibly other embedded Linux devices.
+static inline bool isRNDISControlBeagleBoard(const InterfaceDescriptor *idesc) {
+	return idesc->bInterfaceClass == 2  // Communications / CDC Control
+		&& idesc->bInterfaceSubClass == 2  // Abstract (modem)
+		&& idesc->bInterfaceProtocol == 255;  // Vendor Specific (RNDIS).
+}
+
+// Any of the above RNDIS control interface.
+static inline bool isRNDISControlInterface(const InterfaceDescriptor *idesc) {
+	return isRNDISControlStockAndroid(idesc) || isRNDISControlBeagleBoard(idesc);
 }
 
 // Detects the class 10 - CDC data interface.
