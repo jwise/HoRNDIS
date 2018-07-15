@@ -59,6 +59,79 @@
 OSDefineMetaClassAndStructors(HoRNDIS, IOEthernetController);
 OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 
+/* 
+================================================================
+DESCRIPTION OF DEVICE DRIVER MATCHING (+ Info.plist description)
+================================================================
+The HoRNDIS driver classes are only instantiated when the MacOS matches 
+"IOKitPersonalities" dictionary entries to the existing devices. The matching 
+can be done 2 based on two different provider classes:
+ 
+ - IOUSBHostInterface - matches an interface under a USB device. Here, we match
+   based on the interface class/subclass/protocol. In order for the matching to
+   work, some other driver has to open the USB device and call 
+   "setConfiguration" method with matchInterfaces=true.
+   The interface matching works out-of-the-box for interfaces under USB
+   Composite Devices (class/subclass/protocol are 0/0/0), since there is an OS 
+   driver that opens such devices for matching.
+ 
+ - IOUSBHostDevice - match is performed on the whole device. Here, we match 
+   based on class/subclass/protocol. The start method needs to call 
+   'setConfiguration' in order for any IOUSBHostInterface instances under the 
+   device to become available. If it specifies 'matchInterfaces', matching is 
+   then performed on newly-created IOUSBHostInterfaces.
+
+OUR APPROACH:
+We'll match based on either device or interface, and let the probe and start 
+methods handle the difference. Not calling setConfiguration with matchInterfaces
+for now: if it's not a USB composite device, consider that we own it.
+ 
+Subsequent logic:
+After MacOS finds a match based on Info.plist, it instantiates the driver class,
+and calls the 'probe' method that looks at descriptors and decides if this is 
+really the device we care about (e.g. fine-grained filtering), and sets the 
+"probeXxx" variables. Then, 'start' method calls 'openUSBInterfaces' that 
+blindly follows the "probeXxx" variables to get the needed IOUSBHostInterface 
+values from the opened device.
+
+==========================
+||  DEVICE VARIATIONS
+==========================
+This section must document ALL different variations of the devices that we
+may be dealing with, so we have the whole picture when updating the "probe"
+code or "Info.plist". Notation:
+ * Device: 224 / 0 / 0
+   - bDeviceClass / bDeviceSubClass / bDeviceProtocol
+ * Interface Associaton[2]: 224 / 1 / 3
+   - [bInterfaceCount]:  bFunctionClass / bFunctionSubClass / bFunctionProtocol
+ * Interface: 224 / 3 / 1
+   -  bInterfaceClass / bInterfaceSubClass / bInterfaceProtocol
+
+[*] "Stock" Android. I believe most Android phone tethering should behave
+    this way
+    * USBCompositeDevice: 0 / 0 / 0
+      - InterfaceAssociation[2] 224 / 1 / 3
+        - ControlInterface: 224 / 1 / 3
+        - DataInterface:     10 / 0 / 0
+    * Info.plist entry: RNDISControlStockAndroid(interface)
+
+[*] Linux USB Gadget drivers. Location:
+    <LINUX_KERNEL>/drivers/usb/gadget/function/f_rndis.c
+    These show up in various embedded Linux boards, such as Beagle Board,
+    Analog Devices PlutoSDR, etc.
+    * USBCompositeDevice: 0 / 0 / 0
+      - InterfaceAssociation[2]: Configurable (e.g. 2/6/0, 239/4/1).
+        - ControlInterface:  2 / 2 / 255
+        - DataInterface:    10 / 0 / 0
+    * Info.plist entry: RNDISControlLinuxGadget(interface)
+
+[*] Wireless Controller Device (class 224). Some Samsung phones (e.g. S7 Edge) 
+    specify device class 224 for tethering, instead of just being a USB
+    composite device. The rest is the same as in "stock" Android.
+    Note, the other Samsung phones (e.g. S8) behave like other Android devices.
+	* Device: 224 / 0 / 0
+	  - (same as "Stock" Android)
+*/
 
 // Detects the 224/1/3 - stock Android RNDIS control interface.
 static inline bool isRNDISControlStockAndroid(const InterfaceDescriptor *idesc) {
@@ -68,7 +141,7 @@ static inline bool isRNDISControlStockAndroid(const InterfaceDescriptor *idesc) 
 }
 
 // Detects RNDIS control on BeagleBoard and possibly other embedded Linux devices.
-static inline bool isRNDISControlBeagleBoard(const InterfaceDescriptor *idesc) {
+static inline bool isRNDISControlLinuxGadget(const InterfaceDescriptor *idesc) {
 	return idesc->bInterfaceClass == 2  // Communications / CDC Control
 		&& idesc->bInterfaceSubClass == 2  // Abstract (modem)
 		&& idesc->bInterfaceProtocol == 255;  // Vendor Specific (RNDIS).
@@ -76,7 +149,7 @@ static inline bool isRNDISControlBeagleBoard(const InterfaceDescriptor *idesc) {
 
 // Any of the above RNDIS control interface.
 static inline bool isRNDISControlInterface(const InterfaceDescriptor *idesc) {
-	return isRNDISControlStockAndroid(idesc) || isRNDISControlBeagleBoard(idesc);
+	return isRNDISControlStockAndroid(idesc) || isRNDISControlLinuxGadget(idesc);
 }
 
 // Detects the class 10 - CDC data interface.
@@ -103,6 +176,10 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	fNetifEnabled = false;
 	fEnableDisableInProgress = false;
 	fDataDead = false;
+
+	fProbeConfigVal = 0;
+	fProbeCommIfNum = 0;
+
 	fCallbackCount = 0;
 
 	fCommInterface = NULL;
@@ -133,55 +210,51 @@ void HoRNDIS::free() {
 	super::free();
 }
 
-static void maybeApplyElCapitanFix(IONetworkController *horndis) {
-	// PROBLEM:
-	//   Network interface proliferation on El Capitan, that does not
-	//   happen on Sierra or later.
-	// ROOT CAUSE:
-	//   Android devices randomly-generate Ethernet MAC address for
-	//   RNDIS interface, so the system may think there is a new device
-	//   every time you connect an Android phone, and may create a new
-	//   network interface every such time.
-	//   Luckily, it does extra check when Network Provider is a USB device:
-	//   in that case, it would match based on USB data, creating an entry like:
-	//	    <key>SCNetworkInterfaceInfo</key>
-	//      <dict>
-	//          <key>USB Product Name</key>
-	//          <string>Pixel 2</string>
-	//          <key>UserDefinedName</key>
-	//          <string>Pixel 2</string>
-	//          <key>idProduct</key>
-	//          <integer>20195</integer>
-	//          ...
-	//   In: /Library/Preferences/SystemConfiguration/NetworkInterfaces.plist
-	//   When that works, interfaces do not proliferate.
-	// EL CAPITAN PROBLEM:
-	//    The buggy system network daemon (or whatever it is) checks for the
-	//    interface's "IOProviderClass" to be either IOUSBDevice or
-	//    IOUSBInterface - it has not been updated for the new IOUSBHostDevice
-	//    and IOUSBHostInterface names.
-	// FIX/HACK:
-	//    Just set the provider class property to be IOUSBInterface, instead
-	//    of IOUSBHostInterface. This fixes the network logic, and hopefully
-	//    does not break anything else.
-	if (version_major == 15) {  // This is El Cap Kernel version number.
-		LOG(V_NOTE, "Applying El Capitan Fix: setting 'IOProviderClass' "
-			"property to 'IOUSBInterface'");
-		OSString *str = OSString::withCString("IOUSBInterface");
-		horndis->setProperty(kIOProviderClassKey, str);
-		str->release();
-	}
-}
+/*
+==================================================
+INTERFACE PROLIFERATION AND PROVIDER CLASS NAME
+==================================================
+PROBLEM:
+ Every time you connect the same Android device (or somewhat more rarely),
+ MacOS creates a new entry under "Network" configurations tab. These entries
+ keep on coming on and on, polluting the configuration.
+ 
+ROOT CAUSE:
+ Android devices randomly-generate Ethernet MAC address for
+ RNDIS interface, so the system may think there is a new device
+ every time you connect an Android phone, and may create a new
+ network interface every such time.
+ Luckily, it does extra check when Network Provider is a USB device:
+ in that case, it would match based on USB data, creating an entry like:
+		<key>SCNetworkInterfaceInfo</key>
+		<dict>
+			<key>USB Product Name</key>
+			<string>Pixel 2</string>
+			<key>UserDefinedName</key>
+			<string>Pixel 2</string>
+			<key>idProduct</key>
+			<integer>20195</integer>
+			...
+ In: /Library/Preferences/SystemConfiguration/NetworkInterfaces.plist
+ When that works, interfaces do not proliferate (at least in most cases).
+
+PROBLEM CAUSE:
+ The MacOS network daemon (or whatever it is) looks at interface's 
+ "IOProviderClass" to see if it's USB Device. Unfortunately, it may not pick
+ up all the names, e.g. it may trigger off the old "IOUSBDevice", but not
+ the new "IOUSBHostDevice". This problem is present in El Capitan for both
+ device and the interface, and seems to be present in later systems for 
+ IOUSBDevice.
+ 
+FIX/HACK:
+ The IOUSBHostDevice and IOUSBHostInterface providers actually specify
+ the "IOClassNameOverride" that gives the old name. We just take this value
+ and update our "IOProviderClass" to that.
+*/
 
 bool HoRNDIS::start(IOService *provider) {
 	LOG(V_DEBUG, ">");
 
-	IOUSBHostInterface *interface = OSDynamicCast(IOUSBHostInterface, provider);
-	if (interface == NULL) {
-		LOG(V_ERROR, "start: BUG we expected IOUSBHostInterface here, but did not get it");
-		return false;
-	}
-	
 	// Per comment in "IONetworkController.h", 'super::start' should be the
 	// first method called in the overridden implementation. It allocates the
 	// network queue for the interface. The rest of the networking
@@ -191,7 +264,15 @@ bool HoRNDIS::start(IOService *provider) {
 		return false;
 	}
 
-	if (!openUSBInterfaces(interface)) {
+	{  // Fixing the Provider class name.
+		// See "INTERFACE PROLIFERATION AND PROVIDER CLASS NAME" description.
+		OSObject *providerClass = provider->getProperty("IOClassNameOverride");
+		if (providerClass) {
+			setProperty(kIOProviderClassKey, providerClass);
+		}
+	}
+
+	if (!openUSBInterfaces(provider)) {
 		goto bailout;
 	}
 
@@ -203,7 +284,6 @@ bool HoRNDIS::start(IOService *provider) {
 	// the Android does not seem to be missing its absense, so there is
 	// probably no use in implementing it.
 
-	maybeApplyElCapitanFix(this);
 	LOG(V_DEBUG, "done with RNDIS initialization: can start network interface");
 
 	// Let's create the medium tables here, to avoid doing extra
@@ -272,56 +352,85 @@ template <class T> static inline T *retainT(T *ptr) {
 	return ptr;
 }
 
-bool HoRNDIS::openUSBInterfaces(IOUSBHostInterface *controlInterface) {
-	// Make sure the the control interface is expected:
-	if (!isRNDISControlInterface(controlInterface->getInterfaceDescriptor())) {
-		LOG(V_ERROR, "BUG: expected control interface as a parameter");
+bool HoRNDIS::openUSBInterfaces(IOService *provider) {
+	if (fProbeConfigVal == 0) {
+		// Must have been set by 'probe' before 'start' function call:
+		LOG(V_ERROR, "'fProbeConfigVal' has not been set, bailing out");
 		return false;
 	}
-	fCommInterface = retainT(controlInterface);
-	if (!fCommInterface->open(this)) {
-		LOG(V_ERROR, "could not open fCommInterface, bailing out");
-		// Release 'comm' interface here, so 'stop' would not try to close it.
-		OSSafeReleaseNULL(fCommInterface);
-		return false;
+
+	IOUSBHostDevice *device = OSDynamicCast(IOUSBHostDevice, provider);
+	if (device) {
+		// Set the device configuration, so we can start looking at the interfaces:
+		if (device->setConfiguration(fProbeConfigVal, false) != kIOReturnSuccess) {
+			LOG(V_ERROR, "Cannot set the USB Device configuration");
+			return false;
+		}
+	} else {
+		IOUSBHostInterface *iface = OSDynamicCast(IOUSBHostInterface, provider);
+		if (iface == NULL) {
+			LOG(V_ERROR, "start: BUG unexpected provider class");
+			return false;
+		}
+		device = iface->getDevice();
+		// Make sure it's the one we care about:
+		bool match = iface->getConfigurationDescriptor()->bConfigurationValue == fProbeConfigVal
+			&& iface->getInterfaceDescriptor()->bInterfaceNumber == fProbeCommIfNum;
+		if (!match) {
+			LOG(V_ERROR, "BUG! Did we see a different provider in probe?");
+			return false;
+		}
 	}
-	
-	{  // Now, find the data interface:
-		const uint8_t controlIfNum = fCommInterface->getInterfaceDescriptor()->bInterfaceNumber;
-		IOUSBHostDevice *device = controlInterface->getDevice();
-	
+
+	{  // Now, find the interfaces:
 		OSIterator *iterator = device->getChildIterator(gIOServicePlane);
-		OSObject *candidate = NULL;
-		while(iterator != NULL && (candidate = iterator->getNextObject()) != NULL) {
-			IOUSBHostInterface *interfaceCandidate =
-				OSDynamicCast(IOUSBHostInterface, candidate);
-			if (interfaceCandidate == NULL) {
+		OSObject *obj = NULL;
+		while(iterator != NULL && (obj = iterator->getNextObject()) != NULL) {
+			IOUSBHostInterface *iface = OSDynamicCast(IOUSBHostInterface, obj);
+			if (iface == NULL) {
 				continue;
 			}
-			const InterfaceDescriptor *intDesc = interfaceCandidate->getInterfaceDescriptor();
-			// Note, also make sure data interface follows right after control:
-			if (isCDCDataInterface(intDesc) && intDesc->bInterfaceNumber == controlIfNum + 1) {
-				fDataInterface = retainT(interfaceCandidate);
-				break;
+			if (iface->getConfigurationDescriptor()->bConfigurationValue !=
+					fProbeConfigVal) {
+				continue;
+			}
+			const InterfaceDescriptor *desc = iface->getInterfaceDescriptor();
+			uint8_t ifaceNum = desc->bInterfaceNumber;
+			if (!fCommInterface && ifaceNum == fProbeCommIfNum) {
+				LOG(V_DEBUG, "Found control interface: %d/%d/%d, opening",
+					desc->bInterfaceClass, desc->bInterfaceSubClass,
+					desc->bInterfaceProtocol);
+				if (!iface->open(this)) {
+					LOG(V_ERROR, "Could not open RNDIS control interface");
+					return false;
+				}
+				// Note, we retain AFTER opening the interface, because once
+				// 'fCommInterface' is set, the 'closeUSBInterfaces' would
+				// always try to close it before releasing:
+				fCommInterface = retainT(iface);
+			} else if (ifaceNum == fProbeCommIfNum + 1) {
+				LOG(V_DEBUG, "Found data interface: %d/%d/%d, opening",
+					desc->bInterfaceClass, desc->bInterfaceSubClass,
+					desc->bInterfaceProtocol);
+				if (!iface->open(this)) {
+					LOG(V_ERROR, "Could not open RNDIS data interface");
+					return false;
+				}
+				// open before retain, see above:
+				fDataInterface = retainT(iface);
+				break;  // We should be done by now.
 			}
 		}
 		OSSafeReleaseNULL(iterator);
 	}
 
-	if (!fDataInterface) {
-		LOG(V_ERROR, "could not find the data interface, despite seeing "
-			"its descriptor during 'probe' method call");
-		return false;
-	}
-
 	// WARNING, it is a WRONG idea to attach 'fDataInterface' as a second
 	// provider, because both providers would be calling 'willTerminate', and
 	// 'stop' methods, resulting in chaos.
-	
-	if (!fDataInterface->open(this)) {
-		LOG(V_ERROR, "could not open fDataInterface, bailing out");
-		// Release the 'fDataInterface' here, so 'stop' won't try to close it.
-		OSSafeReleaseNULL(fDataInterface);
+
+	if (!fCommInterface || !fDataInterface) {
+		LOG(V_ERROR, "could not find the required interfaces, despite seeing "
+			"their descriptors during 'probe' method call");
 		return false;
 	}
 	
@@ -370,49 +479,90 @@ void HoRNDIS::closeUSBInterfaces() {
 
 IOService *HoRNDIS::probe(IOService *provider, SInt32 *score) {
 	LOG(V_DEBUG, "came in with a score of %d", *score);
-	
-	// Driver matching algorithm: keep it simple for now. Assumptions:
-	//  - Android device has only one USB configuration OR RNDIS interfaces
-	//    would be in the active configuration.
-	// Algorithm:
-	//  - The Info.plist matchies on "224/1/3" - RNDIS control interface.
-	//  - "probe" double-checks that and also makes sure the data interface is present.
-	//  - The "start" can open the required interfaces right away - no need to open
-	//    the device and set the configuration.
-	IOUSBHostInterface *interface = OSDynamicCast(IOUSBHostInterface, provider);
-	if (interface == NULL) {
-		LOG(V_ERROR, "unexpected provider class (wrong Info.plist)");
-		return NULL;
-	}
-	
-	if (!isRNDISControlInterface(interface->getInterfaceDescriptor())) {
-		LOG(V_ERROR, "not RNDIS control interface (wrong Info.plist)");
-		return NULL;
-	}
-	const uint8_t controlIfNum = interface->getInterfaceDescriptor()->bInterfaceNumber;
-	
-	// Now, search for data interface: if found, we're done:
-	bool foundData = false;
-	const ConfigurationDescriptor *confDesc = interface->getConfigurationDescriptor();
-	const InterfaceDescriptor *intDesc = NULL;
-	while((intDesc = StandardUSB::getNextInterfaceDescriptor(confDesc, intDesc)) != NULL) {
-		// Just in case an Android device has several CDC data interfaces, we would only
-		// pick the one that follows RIGHT AFTER the RNDIS interface:
-		if (isCDCDataInterface(intDesc) &&
-			intDesc->bInterfaceNumber == controlIfNum + 1) {
-			foundData = true;
-			break;
+	{  // Check if this is a device-based matching:
+		IOUSBHostDevice *device = OSDynamicCast(IOUSBHostDevice, provider);
+		if (device) {
+			return probeDevice(device, score);
 		}
 	}
 	
-	if (foundData) {
-		*score += 100000;
-		return this;
-	} else {
-		// Did not find any interfaces we can use:
-		LOG(V_DEBUG, "unexpected provider class or parameters: this device is not for us");
+	IOUSBHostInterface *controlIf = OSDynamicCast(IOUSBHostInterface, provider);
+ 	if (controlIf == NULL) {
+		LOG(V_ERROR, "unexpected provider class (wrong Info.plist)");
 		return NULL;
 	}
+
+	const InterfaceDescriptor *desc = controlIf->getInterfaceDescriptor();
+	LOG(V_DEBUG, "Interface-based matching, probing for device '%s', "
+		"interface %d/%d/%d", controlIf->getDevice()->getName(),
+		desc->bInterfaceClass, desc->bInterfaceSubClass,
+		desc->bInterfaceProtocol);
+	if (!isRNDISControlInterface(controlIf->getInterfaceDescriptor())) {
+		LOG(V_ERROR, "not RNDIS control interface (wrong Info.plist)");
+		return NULL;
+	}
+
+	const ConfigurationDescriptor *configDesc =
+		controlIf->getConfigurationDescriptor();
+	const InterfaceDescriptor *dataDesc =
+		StandardUSB::getNextInterfaceDescriptor(configDesc, desc);
+	bool match = isCDCDataInterface(dataDesc) &&
+		(dataDesc->bInterfaceNumber == desc->bInterfaceNumber + 1);
+	if (!match) {
+		LOG(V_DEBUG, "Could not find CDC data interface right after control");
+		return NULL;
+	}
+	fProbeConfigVal = configDesc->bConfigurationValue;
+	fProbeCommIfNum = desc->bInterfaceNumber;
+	*score += 100000;
+	return this;
+}
+
+IOService *HoRNDIS::probeDevice(IOUSBHostDevice *device, SInt32 *score) {
+	const DeviceDescriptor *desc = device->getDeviceDescriptor();
+	LOG(V_DEBUG, "Device-based matching, probing: '%s', %d/%d/%d",
+		device->getName(), desc->bDeviceClass, desc->bDeviceSubClass,
+		desc->bDeviceProtocol);
+	// Look through all configurations and find the one we want:
+	for (int i = 0; i < desc->bNumConfigurations; i++) {
+		const ConfigurationDescriptor *configDesc =
+			device->getConfigurationDescriptor(i);
+		if (configDesc == NULL) {
+			LOG(V_ERROR, "Cannot get device's configuration descriptor");
+			return NULL;
+		}
+		int controlIfNum = INT16_MAX;  // Definitely invalid interface number.
+		bool foundData = false;
+		const InterfaceDescriptor *intDesc = NULL;
+		while((intDesc = StandardUSB::getNextInterfaceDescriptor(configDesc, intDesc)) != NULL) {
+			// If this is a device-level match, check for the control interface:
+			if (isRNDISControlInterface(intDesc)) {  // Just check them all.
+				controlIfNum = intDesc->bInterfaceNumber;
+				continue;
+			}
+		
+			// We check for data interface AND make sure it follows directly the
+			// control interface. Note the condition below would only trigger
+			// if we previously found an appropriate 'controlIfNum':
+			if (isCDCDataInterface(intDesc) &&
+				intDesc->bInterfaceNumber == controlIfNum + 1) {
+				foundData = true;
+				break;
+			}
+		}
+		if (foundData) {
+			// We've found it! Save the information and return:
+			fProbeConfigVal = configDesc->bConfigurationValue;
+			fProbeCommIfNum = controlIfNum;
+			*score += 10000;
+			return this;
+		}
+	}
+
+	// Did not find any interfaces we can use:
+	LOG(V_DEBUG, "The device '%s' does not contain the required interfaces: "
+			"it is not for us", device->getName());
+	return NULL;
 }
 
 /***** Ethernet interface bits *****/

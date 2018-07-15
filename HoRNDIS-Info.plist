@@ -39,7 +39,7 @@
 			<key>bInterfaceProtocol</key>
 			<integer>3</integer>
 		</dict>
-		<key>RNDISControlBeagleBoard</key>
+		<key>RNDISControlLinuxGadget</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
 			<string>com.joshuawise.kexts.HoRNDIS</string>
@@ -53,6 +53,21 @@
 			<integer>2</integer>
 			<key>bInterfaceProtocol</key>
 			<integer>255</integer>
+		</dict>
+		<key>WirelessControllerDevice</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.joshuawise.kexts.HoRNDIS</string>
+			<key>IOClass</key>
+			<string>HoRNDIS</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostDevice</string>
+			<key>bDeviceClass</key>
+			<integer>224</integer>
+			<key>bDeviceSubClass</key>
+			<integer>0</integer>
+			<key>bDeviceProtocol</key>
+			<integer>0</integer>
 		</dict>
 	</dict>
 	<key>OSBundleLibraries</key>

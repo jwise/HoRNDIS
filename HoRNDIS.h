@@ -285,6 +285,11 @@ private:
 	bool fNetifEnabled;
 	bool fEnableDisableInProgress;  // Guards against re-entry
 	bool fDataDead;
+
+	// These pass information from 'probe' to 'openUSBInterfaces':
+	uint8_t fProbeConfigVal;
+	uint8_t fProbeCommIfNum;  // The data interface number is +1.
+
 	// fCallbackCount is the number of callbacks concurrently running
 	// (possibly offset by a certain value).
 	//  - Every successful async API call shall "fCallbackCount++".
@@ -317,7 +322,9 @@ private:
 	int rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, int *reply_len);
 	bool rndisSetPacketFilter(uint32_t filter);
 
-	bool openUSBInterfaces(IOUSBHostInterface *controlInterface);
+	IOService *probeDevice(IOUSBHostDevice *device, SInt32 *score);
+
+	bool openUSBInterfaces(IOService *provider);
 	void closeUSBInterfaces();
 	void disableNetworkQueue();
 	void disableImpl();
