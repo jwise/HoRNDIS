@@ -1049,79 +1049,6 @@ IOReturn HoRNDIS::setPromiscuousMode(bool active) {
 	return kIOReturnSuccess;
 }
 
-// TODO(mikhailai): Test and possibly fix suspend and resume.
-#if 0
-IOReturn HoRNDIS::message(UInt32 type, IOService *provider, void *argument) {
-	//IOReturn	ior;
-	switch (type) {
-	case kIOMessageServiceIsTerminated:
-		LOG(V_NOTE, "kIOMessageServiceIsTerminated");
-		
-		if (!fNetifEnabled) {
-			if (fCommInterface) {
-				fCommInterface->close(this);
-				fCommInterface->release();
-				fCommInterface = NULL;
-			}
-			
-			if (fDataInterface) {
-				fDataInterface->close(this);
-				fDataInterface->release();
-				fDataInterface = NULL;
-			}
-			
-			fpDevice->close(this);
-			fpDevice = NULL;
-		}
-		
-		fTerminate = true;
-		return kIOReturnSuccess;
-	case kIOMessageServiceIsSuspended:
-		LOG(V_NOTE, "kIOMessageServiceIsSuspended");
-		break;
-	case kIOMessageServiceIsResumed:
-		LOG(V_NOTE, "kIOMessageServiceIsResumed");
-		break;
-	case kIOMessageServiceIsRequestingClose:
-		LOG(V_NOTE, "kIOMessageServiceIsRequestingClose");
-		break;
-	case kIOMessageServiceWasClosed:
-		LOG(V_NOTE, "kIOMessageServiceWasClosed");
-		break;
-	case kIOMessageServiceBusyStateChange:
-		LOG(V_NOTE, "kIOMessageServiceBusyStateChange");
-		break;
-	case kIOUSBMessagePortHasBeenResumed:
-		LOG(V_NOTE, "kIOUSBMessagePortHasBeenResumed");
-		
-		// Try to resurrect any dead reads.
-		if (fDataDead) {
-			ior = fInPipe->Read(inbuf.mdp, &inbuf.comp, NULL);
-			if (ior == kIOReturnSuccess)
-				fDataDead = false;
-			else 
-				LOG(V_ERROR, "failed to queue Data pipe read");
-		}
-		
-		break;
-	case kIOUSBMessageHubResumePort:
-		LOG(V_NOTE, "kIOUSBMessageHubResumePort");
-		break;
-	case kIOMessageServiceIsAttemptingOpen:
-		LOG(V_NOTE, "kIOMessageServiceIsAttemptingOpen");
-		break;
-	default:
-		LOG(V_ERROR, ">>>>>>>>> Possibly un-updated messages!!!");
-		LOG(V_NOTE, "unknown message type %08x", (unsigned int) type);
-		break;
-	}
-
-	LOG(V_ERROR, "###################### Received the message: %d, ", type);
-	return super::message(type, provider, argument);
-}
-#endif
-
-
 /***** Packet transmit logic *****/
 
 static inline bool isTransferStopStatus(IOReturn rc) {
@@ -1418,7 +1345,6 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 		}
 	}
 
-	// TODO(mikhailai): Try implementing the actual protocol logic.
 	// The RNDIS control messages are done via 'deviceRequest' - issue control
 	// transfers on the device's default endpoint. Per [MSDN-RNDISUSB], if
 	// a device is not ready (for some reason) to reply with the actual data,
@@ -1432,9 +1358,9 @@ IOReturn HoRNDIS::rndisCommand(struct rndis_msg_hdr *buf, int buflen) {
 	// the result. Whether Android does that correctly is something I need to
 	// investigate.
 	//
-	// TODO(mikhailai): Also, RNDIS specifies that the device may be sending
+	// Also, RNDIS specifies that the device may be sending
 	// REMOTE_NDIS_INDICATE_STATUS_MSG on its own. How much this applies to
-	// Android and how useful is that needs to be investigated.
+	// Android or embedded Linux devices needs to be investigated.
 	//
 	// Reference:
 	// https://docs.microsoft.com/en-us/windows-hardware/drivers/network/control-channel-characteristics

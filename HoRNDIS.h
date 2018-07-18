@@ -345,8 +345,6 @@ public:
 	virtual bool willTerminate(IOService *provider, IOOptionBits options) override;
 	virtual void stop(IOService *provider) override;
 
-	// virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0) override;
-	
 	// IOEthernetController overrides
 	virtual IOOutputQueue *createOutputQueue(void) override;
 	virtual IOReturn getHardwareAddress(IOEthernetAddress *addr) override;
