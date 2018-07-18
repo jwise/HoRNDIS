@@ -285,6 +285,11 @@ private:
 	bool fNetifEnabled;
 	bool fEnableDisableInProgress;  // Guards against re-entry
 	bool fDataDead;
+
+	// These pass information from 'probe' to 'openUSBInterfaces':
+	uint8_t fProbeConfigVal;
+	uint8_t fProbeCommIfNum;  // The data interface number is +1.
+
 	// fCallbackCount is the number of callbacks concurrently running
 	// (possibly offset by a certain value).
 	//  - Every successful async API call shall "fCallbackCount++".
@@ -317,7 +322,9 @@ private:
 	int rndisQuery(void *buf, uint32_t oid, uint32_t in_len, void **reply, int *reply_len);
 	bool rndisSetPacketFilter(uint32_t filter);
 
-	bool openUSBInterfaces(IOUSBHostInterface *controlInterface);
+	IOService *probeDevice(IOUSBHostDevice *device, SInt32 *score);
+
+	bool openUSBInterfaces(IOService *provider);
 	void closeUSBInterfaces();
 	void disableNetworkQueue();
 	void disableImpl();
@@ -338,8 +345,6 @@ public:
 	virtual bool willTerminate(IOService *provider, IOOptionBits options) override;
 	virtual void stop(IOService *provider) override;
 
-	// virtual IOReturn message(UInt32 type, IOService *provider, void *argument = 0) override;
-	
 	// IOEthernetController overrides
 	virtual IOOutputQueue *createOutputQueue(void) override;
 	virtual IOReturn getHardwareAddress(IOEthernetAddress *addr) override;
@@ -352,6 +357,9 @@ public:
 	virtual IOReturn enable(IONetworkInterface *netif) override;
 	virtual IOReturn disable(IONetworkInterface *netif) override;
 	virtual IOReturn selectMedium(const IONetworkMedium *medium) override;
+	virtual IOReturn setMulticastMode(bool active) override;
+	virtual IOReturn setMulticastList(IOEthernetAddress *addrs,
+	                                  UInt32             count) override;
 	virtual IOReturn setPromiscuousMode(bool active) override;
 	virtual UInt32 outputPacket(mbuf_t pkt, void *param) override;
 };
