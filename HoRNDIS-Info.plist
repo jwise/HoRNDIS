@@ -39,6 +39,21 @@
 			<key>bInterfaceProtocol</key>
 			<integer>3</integer>
 		</dict>
+		<key>RNDISControlMiscDeviceRoE</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>com.joshuawise.kexts.HoRNDIS</string>
+			<key>IOClass</key>
+			<string>HoRNDIS</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>bInterfaceClass</key>
+			<integer>239</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>4</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+		</dict>
 		<key>RNDISControlLinuxGadget</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
