@@ -131,6 +131,16 @@ code or "Info.plist". Notation:
     Note, the other Samsung phones (e.g. S8) behave like other Android devices.
 	* Device: 224 / 0 / 0
 	  - (same as "Stock" Android)
+
+[*] Composite Device, using 0xEF/4/1 for RNDIS control: Nokia 7 Plus (issue #88)
+    Also may apply to Sony Xperia XZ.
+    This matches "RNDIS over Ethernet" specification given here:
+	http://www.usb.org/developers/defined_class/#BaseClassEFh
+    * USBCompositeDevice: 0 / 0 / 0
+	  - InterfaceAssociation[2]: 239 / 4 / 1
+        - ControlInterface: 239 / 4 / 1
+        - DataInterface:     10 / 0 / 0
+	* Info.plist entry: RNDISControlMiscDeviceRoE(interface)
 */
 
 // Detects the 224/1/3 - stock Android RNDIS control interface.
@@ -138,6 +148,13 @@ static inline bool isRNDISControlStockAndroid(const InterfaceDescriptor *idesc) 
 	return idesc->bInterfaceClass == 224  // Wireless Controller
 		&& idesc->bInterfaceSubClass == 1  // Radio Frequency
 		&& idesc->bInterfaceProtocol == 3;  // RNDIS protocol
+}
+
+// Miscellaneous Device (0xEF), RNDIS over Ethernet: some phones, see above.
+static inline bool isRNDISControlMiscDeviceRoE(const InterfaceDescriptor *idesc) {
+	return idesc->bInterfaceClass == 239  // Miscellaneous Device
+		&& idesc->bInterfaceSubClass == 4  // RNDIS?
+		&& idesc->bInterfaceProtocol == 1;  // RNDIS over Ethernet
 }
 
 // Detects RNDIS control on BeagleBoard and possibly other embedded Linux devices.
@@ -149,7 +166,9 @@ static inline bool isRNDISControlLinuxGadget(const InterfaceDescriptor *idesc) {
 
 // Any of the above RNDIS control interface.
 static inline bool isRNDISControlInterface(const InterfaceDescriptor *idesc) {
-	return isRNDISControlStockAndroid(idesc) || isRNDISControlLinuxGadget(idesc);
+	return isRNDISControlStockAndroid(idesc)
+		|| isRNDISControlLinuxGadget(idesc)
+		|| isRNDISControlMiscDeviceRoE(idesc);
 }
 
 // Detects the class 10 - CDC data interface.
