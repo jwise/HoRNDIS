@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!-- Reference:
+  https://developer.apple.com/library/archive/documentation/DeveloperTools/Reference/DistributionDefinitionRef/Chapters/Introduction.html
+  -->
 <installer-gui-script minSpecVersion="1">
     <title>HoRNDIS</title>
     <welcome file="intro-text.rtf" mime-type="application/rtf" />
     <conclusion file="post-readme.rtf" mime-type="application/rtf" />
-    <options customize="never" hostArchitectures="i386,x86_64" require-scripts="false" rootVolumeOnly="true" />
-    <os-version min="10.6" />
+    <options customize="never" hostArchitectures="i386,x86_64" require-scripts="false" rootVolumeOnly="true"/>
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="10.6" before="10.11"/>
+        </allowed-os-versions>
+    </volume-check>
+    <os-version min="10.6" before="10.11" />
     <choices-outline>
         <line choice="default">
             <line choice="com.joshuawise.kexts.HoRNDIS"/>
@@ -15,5 +23,7 @@
     <choice id="com.joshuawise.kexts.HoRNDIS" visible="false">
         <pkg-ref id="kext"/>
     </choice>
-    <pkg-ref id="kext" version="6.0.0" onConclusion="none">HoRNDIS-kext.pkg</pkg-ref>
+    <!-- WARNING: using '#' under pkg-ref is a MUST. If you skip it, things
+        may seem to work, but all sorts of weird bugs may come-up. -->
+    <pkg-ref id="kext" onConclusion="none">#HoRNDIS-kext.pkg</pkg-ref>
 </installer-gui-script>

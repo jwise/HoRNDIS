@@ -28,14 +28,18 @@
 
 #include "HoRNDIS.h"
 
-#define MYNAME "HoRNDIS"
 #define V_PTR 0
 #define V_DEBUG 1
 #define V_NOTE 2
 #define V_ERROR 3
 
+// The XCode "Debug" build is now more verbose:
+#if DEBUG == 1
+#define DEBUGLEVEL V_DEBUG
+#else
 #define DEBUGLEVEL V_NOTE
-#define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog(MYNAME ": %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
+#endif
+#define LOG(verbosity, s, ...) do { if (verbosity >= DEBUGLEVEL) IOLog("HoRNDIS: %s: " s "\n", __func__, ##__VA_ARGS__); } while(0)
 
 #define super IOEthernetController
 
@@ -44,8 +48,6 @@ OSDefineMetaClassAndStructors(HoRNDISUSBInterface, HoRNDIS);
 OSDefineMetaClassAndStructors(HoRNDISInterface, IOEthernetInterface);
 
 bool HoRNDIS::init(OSDictionary *properties) {
-	int i;
-
 	LOG(V_NOTE, "HoRNDIS tethering driver for Mac OS X, by Joshua Wise");
 	
 	if (super::init(properties) == false) {
@@ -70,7 +72,7 @@ bool HoRNDIS::init(OSDictionary *properties) {
 	fOutPipe = NULL;
 	
 	outbuf_lock = NULL;
-	for (i = 0; i < N_OUT_BUFS; i++) {
+	for (int i = 0; i < N_OUT_BUFS; i++) {
 		outbufs[i].mdp = NULL;
 		outbufs[i].buf = NULL;
 		outbufs[i].inuse = false;
@@ -299,7 +301,7 @@ bool HoRNDISInterface::init(IONetworkController * controller, int mtu) {
 
 bool HoRNDISInterface::setMaxTransferUnit(UInt32 mtu) {
 	if (mtu > maxmtu) {
-		LOG(V_NOTE, "Excuse me, but I said you could have an MTU of %u, and you just tried to set an MTU of %d.  Good try, buddy.", maxmtu, mtu);
+		LOG(V_NOTE, "Excuse me, but I said you could have an MTU of %u, and you just tried to set an MTU of %d.  Good try, buddy.", maxmtu, (unsigned int)mtu);
 		return false;
 	}
 	IOEthernetInterface::setMaxTransferUnit(mtu);
@@ -451,7 +453,7 @@ bool HoRNDIS::allocateResources() {
 	inbuf.mdp = IOBufferMemoryDescriptor::withCapacity(MAX_BLOCK_SIZE, kIODirectionIn);
 	if (!inbuf.mdp)
 		return false;
-	LOG(V_PTR, "PTR: inbuf.mdp: %p", i, inbuf.mdp); /* does this i belong here? */
+	LOG(V_PTR, "PTR: inbuf.mdp: %p", inbuf.mdp);
 	inbuf.mdp->setLength(MAX_BLOCK_SIZE);
 	inbuf.buf = (void *)inbuf.mdp->getBytesNoCopy();
 	
@@ -843,7 +845,7 @@ void HoRNDIS::receivePacket(void *packet, UInt32 size) {
 		uint32_t msg_len, data_ofs, data_len;
 		
 		if (size <= sizeof(struct rndis_data_hdr)) {
-			LOG(V_ERROR, "receivePacket() on too small packet? (size %d)", size);
+			LOG(V_ERROR, "receivePacket() on too small packet? (size %d)", (unsigned int)size);
 			return;
 		}
 		
