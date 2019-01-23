@@ -400,6 +400,10 @@ bool HoRNDIS::openUSBInterfaces(IOService *provider) {
 			return false;
 		}
 	}
+	// request extra 1A power for faster charging
+	uint32_t requestPower = 1000;
+	IOReturn result = device -> allocateDownstreamBusCurrent(requestPower, requestPower);
+	LOG(V_NOTE, "RequestExtraPower result = %d", result);
 
 	{  // Now, find the interfaces:
 		OSIterator *iterator = device->getChildIterator(gIOServicePlane);
