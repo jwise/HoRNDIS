@@ -14,6 +14,7 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 ### From Homebrew
 
 ```sh
+sudo mount -uw /
 brew cask install horndis
 sudo kextload /Library/Extensions/HoRNDIS.kext
 ```
