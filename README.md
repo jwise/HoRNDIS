@@ -4,7 +4,7 @@
 
 [Discussion ➤ for HoRNDIS on my Page](https://github.com/chris1111/HoRNDIS/discussions)
 
-[Open Issue ➤ for HoRNDIS](https://github.com/chris1111/HoRNDIS/discussions)
+[Open Issue ➤ for HoRNDIS](https://github.com/chris1111/HoRNDIS/issues)
 
 ** HoRNDIS ** (pronounce: *"horrendous"*) is a driver for Mac OS X that allows you to use your Android phone's native [USB tethering](http://en.wikipedia.org/wiki/Tethering) mode to get Internet access.
 
