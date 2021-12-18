@@ -10,7 +10,7 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 
 * Build All Source ([Build](#Building-the-source-and-the-Package) Source and package from CommandLine)
 
-* Get the installation package [Download Release](https://github.com/chris1111/HoRNDIS/releases)
+* Get the installation package [Download Release](https://github.com/chris1111/HoRNDIS/releases/tag/rel9.2)
 
 * Run the installation package
 ![Screen Shot Package](https://user-images.githubusercontent.com/6248794/146647057-a29b4045-fbc9-4078-9578-c358a68bbf80.png)
