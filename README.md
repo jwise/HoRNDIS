@@ -37,10 +37,6 @@ cd $HOME/HoRNDIS
 ```
 
 ```bash
-chmod 755 Package.sh
-```
-
-```bash
 make
 ```
 
