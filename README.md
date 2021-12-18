@@ -24,6 +24,8 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
   * Select "Tethering & portable hotspot"
 * Check the "USB tethering" box. It should flash once, and then become solidly checked.
 
+## SIP Enable [Download Release](https://github.com/chris1111/HoRNDIS/releases/tag/SIP-Enable)
+
 ## Uninstallation
 
 * Delete the `HoRNDIS.kext` under `/Library/Extensions` folder
