@@ -6,4 +6,5 @@ HoRNDIS:
 	@echo "Building HoRNDIS..."
 	@echo [XCODE] $(PROGRAMS)
 	@echo "Building Package"
-	@$(CURDIR)/Package.sh
+	@$(CURDIR)/Build-Package
+	
