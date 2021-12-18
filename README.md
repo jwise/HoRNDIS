@@ -44,6 +44,8 @@ cd $HOME/HoRNDIS
 ```bash
 make
 ```
+### Result: Building the source and the Package ⇩
+![Screen Shot Result](https://user-images.githubusercontent.com/6248794/146648597-f7267994-5227-4d96-b0a1-ea81f2d7a23b.png)
 
 ## Debugging and Development Notes
 
