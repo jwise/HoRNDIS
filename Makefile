@@ -1,6 +1,6 @@
 # For the building the driver and Package for macOS12, macOS11
 # XCode version 13.2.
-#
+# (c) Copyright 2021 chris1111
 	 
 HoRNDIS:
 	@echo "Building HoRNDIS..."
