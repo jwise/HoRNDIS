@@ -1,4 +1,6 @@
-## Fork of HoRNDIS(the USB tethering driver for macOS Monterey 12 and Big Sur 11)
+### Fork of HoRNDIS(the USB tethering driver for macOS Monterey 12 and Big Sur 11)
+
+![Icon](https://user-images.githubusercontent.com/6248794/146649603-cfc7f97a-83eb-4deb-bd64-01b3645fed2f.png)
 
 **HoRNDIS** (pronounce: *"horrendous"*) is a driver for Mac OS X that allows you to use your Android phone's native [USB tethering](http://en.wikipedia.org/wiki/Tethering) mode to get Internet access.
 
