@@ -8,7 +8,7 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 
 ### From Source/Binary
 
-* Get the installation package ([Download](http://www.joshuawise.com/horndis) or [Build](#building-the-source) the installation package from source yourself)
+* Get the installation package ([Download](http://www.joshuawise.com/horndis) or [Build](#Building the source and the Package) the installation package from source yourself)
 * Run the installation package
 
 
