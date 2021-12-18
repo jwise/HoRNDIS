@@ -1,6 +1,7 @@
 #!/bin/sh
-# Cleans-up after the old HoRDNIS installations.
-# These would install into both /Library/Extensions and 
-# /System/Library/Extensions, while we only use the former location.
-sudo rm -rf /System/Library/Extensions/HoRNDIS.kext
-sudo touch /System/Library/Extensions
+echo "Touch Extensions"
+touch "${3}/Library/Extensions/"
+echo "kmutil start loading Extensions"
+kmutil install --update-all
+echo "kcditto start"
+kcditto
