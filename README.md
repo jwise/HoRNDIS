@@ -16,7 +16,9 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 ![Screen Shot Package](https://user-images.githubusercontent.com/6248794/146647057-a29b4045-fbc9-4078-9578-c358a68bbf80.png)
 
 
-* `The Package works only for macOS12 and macOS11 - Do not use the Package(.pkg) in another version of macOS`
+* `The Package works only for macOS12 and macOS11
+ 
+Do not use the Package(.pkg) in another version of macOS`
 
 ## Configuration
 
