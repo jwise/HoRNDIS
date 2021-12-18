@@ -37,7 +37,11 @@ cd $HOME/HoRNDIS
 ```
 
 ```bash
-make
+cd $HOME/HoRNDIS
+```
+
+```bash
+chmod 755 Package.sh
 ```
 
 ## Debugging and Development Notes
