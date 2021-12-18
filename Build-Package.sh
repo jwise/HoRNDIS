@@ -7,8 +7,8 @@ Sleep 2
 xcodebuild -sdk macosx -configuration Release
 # Create the Packages with pkgbuild/productbuild
 echo "Build the Package"
+mkdir -p ./Package/HoRNDIS
 Sleep 2
-rm -rf ./Package/HoRNDIS/.gitkeep
 cp -r ./build/Release/HoRNDIS.kext ./Package/HoRNDIS
 sleep 1
 pkgbuild --root ./Package/HoRNDIS --scripts ./Package/scripts --identifier com.horndis.horndis --version 1 --install-location /Library/Extensions HoRNDIS.pkg
