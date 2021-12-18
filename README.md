@@ -25,7 +25,7 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 
 * `The Package works only for macOS12 and macOS11 Do not use the Package(.pkg) in another version of macOS`
 
-## Configuration: `SIP security and Gatekeeper must be Disable`
+* Configuration: `SIP security and Gatekeeper must be Disable`
 
 * Assuming SIP Security is Disable; that the installation proceeds without errors, after it completes, connect your phone to your Mac by USB.
 * Enter the settings menu on your phone.
