@@ -34,7 +34,7 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 ## Building the source and the Package
 
 ```bash
-git clone https://github.com/chris1111/HoRNDIS.git
+git clone --recursive https://github.com/chris1111/HoRNDIS.git
 ```
 
 ```bash
