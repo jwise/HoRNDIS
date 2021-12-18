@@ -11,12 +11,6 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 * Get the installation package ([Download](http://www.joshuawise.com/horndis) or [Build](#building-the-source) the installation package from source yourself)
 * Run the installation package
 
-### From Homebrew
-
-```sh
-brew cask install horndis
-sudo kextload /Library/Extensions/HoRNDIS.kext
-```
 
 ## Configuration
 
@@ -29,14 +23,22 @@ sudo kextload /Library/Extensions/HoRNDIS.kext
 
 ## Uninstallation
 
-* Delete the `HoRNDIS.kext` under `/System/Library/Extensions` and `/Library/Extensions` folder
+* Delete the `HoRNDIS.kext` under `/Library/Extensions` folder
 * Restart your computer
 
-## Building the source
+## Building the source and the Package
 
-* `git clone` the repository
-* Simply running xcodebuild in the checkout directory should be sufficient to build the kext.
-* If you wish to package it up, you can run `make` to assemble the package in the build/ directory
+```bash
+git clone https://github.com/chris1111/HoRNDIS.git
+```
+
+```bash
+cd $HOME/HoRNDIS
+```
+
+```bash
+make
+```
 
 ## Debugging and Development Notes
 
