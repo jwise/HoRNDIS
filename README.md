@@ -1,4 +1,4 @@
-# HoRNDIS(the USB tethering driver for Mac OS X)
+# Fork of HoRNDIS(the USB tethering driver for Mac OS X)
 
 **HoRNDIS** (pronounce: *"horrendous"*) is a driver for Mac OS X that allows you to use your Android phone's native [USB tethering](http://en.wikipedia.org/wiki/Tethering) mode to get Internet access.
 
