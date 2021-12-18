@@ -6,5 +6,5 @@ HoRNDIS:
 	@echo "Building HoRNDIS..."
 	@echo [XCODE] $(PROGRAMS)
 	@echo "Building Package"
-	@$/chmod 755 Build-Package
-	@$(CURDIR)/Build-Package	
+	@$/chmod 755 Build-Package.sh
+	@$(CURDIR)/Build-Package.sh	
