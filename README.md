@@ -20,14 +20,15 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 * Get the installation package [Download Release](https://github.com/chris1111/HoRNDIS/releases/tag/rel9.2)
 
 * Run the installation package
-![Screen Shot Package](https://user-images.githubusercontent.com/6248794/146647057-a29b4045-fbc9-4078-9578-c358a68bbf80.png)
-
+![Screen Shot all](https://user-images.githubusercontent.com/6248794/146658888-3daf4a39-d671-4fde-a40f-1ec6b5087cc7.png)
 
 * `The Package works only for macOS12 and macOS11 Do not use the Package(.pkg) in another version of macOS`
 
 * Configuration: `SIP security and Gatekeeper must be Disable`
 
-* Assuming SIP Security is Disable; that the installation proceeds without errors, after it completes, connect your phone to your Mac by USB.
+* Assuming SIP Security is Disable; that the installation proceeds without errors. 
+* Go to System Preferences → Security & Privacy and approve the HoRNDIS kernel extension. then restart macos.
+* * connect your phone to your Mac by USB.
 * Enter the settings menu on your phone.
 * In the connections section, below Wi-Fi and Bluetooth:
   * Select "More..."
