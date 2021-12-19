@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<installer-gui-script minSpecVersion="1">
+   <title>HoRNDIS</title>
+   <pkg-ref id="com.joshuawise.kexts.HoRNDIS"/>
+   <options customize="never" allow-external-scripts="false"/>
+   <domains enable_anywhere="true"/>
+   <background file="background.png" alignment="center" scaling="tofit"/>
+   <background-darkAqua file="background.png" alignment="center" scaling="tofit"/>
+   <welcome file="intro-text.rtf" mime-type="application/rtf" />
+   <conclusion file="post-readme.rtf" mime-type="application/rtf" />
+   <choices-outline>
+        <line choice="default">
+            <line choice="com.joshuawise.kexts.HoRNDIS"/>
+        </line>
+    </choices-outline>
+    <choice id="default"/>
+    <choice id="com.joshuawise.kexts.HoRNDIS" visible="false">
+        <pkg-ref id="com.joshuawise.kexts.HoRNDIS"/>
+    </choice>
+    <pkg-ref id="com.joshuawise.kexts.HoRNDIS" version="1" onConclusion="none">HoRNDIS.pkg</pkg-ref>
+</installer-gui-script>
