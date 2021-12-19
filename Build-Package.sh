@@ -11,10 +11,24 @@ mkdir -p ./Package/HoRNDIS
 Sleep 2
 cp -r ./build/Release/HoRNDIS.kext ./Package/HoRNDIS
 sleep 1
-pkgbuild --root ./Package/HoRNDIS --scripts ./Package/scripts --identifier com.horndis.horndis --version 1 --install-location /Library/Extensions HoRNDIS.pkg
-sleep 1
-productbuild --distribution  ./Package/Distribution.xml --resources ./Package/Resources --package-path ./HoRNDIS.pkg ./Build/HoRNDIS-Package.pkg
+# Create the Packages with pkgbuild
+echo "More info under SIGNED PACKAGES.
+https://github.com/chris1111/HoRNDIS/blob/master/Signing%20PKGs.pdf"
+pkgbuild --identifier "com.joshuawise.kexts.HoRNDIS" \
+    --root "./Package/HoRNDIS" \
+    --scripts "./Package/scripts" \
+    --version "1" \
+    --install-location "/Library/Extensions" \
+    "./HoRNDIS.pkg"
+# Create the final Packages with Productbuild
+echo "
+Create the final Packages with Productbuild "
+Sleep 2
+productbuild --distribution "./Package/Distribution.xml"  \
+--package-path "./HoRNDIS.pkg" \
+--resources "./Package/Resources" \
+"./build//HoRNDIS-Package.pkg"
+# Remove the first pkg of pkgbuild
 rm -rf ./HoRNDIS.pkg
 Open ./build
 echo "** PACKAGE BUILD SUCCEEDED **"
-
