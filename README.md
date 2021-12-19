@@ -17,6 +17,8 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 
 * Build All Source ✅  You need Xcode installed ([➤ Build](#Building-the-source-and-the-Package) Source and package from CommandLine)
 
+* Signing PKGs ➤ [Signing Package](https://github.com/chris1111/HoRNDIS/blob/master/Signing%20PKGs.pdf)
+
 * Get the installation package [Download Release](https://github.com/chris1111/HoRNDIS/releases/tag/rel9.2)
 
 * Run the installation package
