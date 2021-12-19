@@ -20,7 +20,10 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 * Get the installation package [Download Release](https://github.com/chris1111/HoRNDIS/releases/tag/rel9.2)
 
 * Run the installation package
-![Screen Shot all](https://user-images.githubusercontent.com/6248794/146659072-dc137790-72c6-40e7-b2e7-a4022fb42518.png)
+- See  ➤ [Package Installation](https://user-images.githubusercontent.com/6248794/146659072-dc137790-72c6-40e7-b2e7-a4022fb42518.png)
+
+![Screen Shot 1](https://user-images.githubusercontent.com/6248794/146659231-140812b9-9df1-4adb-880f-e948612b3c6a.png)
+
 
 * `The Package works only for macOS12 and macOS11 Do not use the Package(.pkg) in another version of macOS`
 
