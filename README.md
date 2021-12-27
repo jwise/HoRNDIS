@@ -23,7 +23,7 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 
 * Run the installation package
 - See  ➤ [Package Installation for Apple Intel](https://user-images.githubusercontent.com/6248794/147510275-100e705a-5471-4550-a393-d76c78e6d8ad.png)
-- See  ➤ [Package Installation for Apple M1](https://user-images.githubusercontent.com/6248794/147512939-5bc5ef65-9652-4089-ac98-7f35bf46fbe1.png)
+- See  ➤ [Package Installation for Apple M1](https://user-images.githubusercontent.com/6248794/147513300-8f87e80e-efeb-4da1-a747-ff050a497dbd.png)
 
 
 
