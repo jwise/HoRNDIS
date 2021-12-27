@@ -22,9 +22,13 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 * Get the installation package [Download Release](https://github.com/chris1111/HoRNDIS/releases/tag/rel9.2)
 
 * Run the installation package
-- See  ➤ [Package Installation](https://user-images.githubusercontent.com/6248794/146659072-dc137790-72c6-40e7-b2e7-a4022fb42518.png)
+- See  ➤ [Package Installation for Apple Intel](https://user-images.githubusercontent.com/6248794/146659072-dc137790-72c6-40e7-b2e7-a4022fb42518.png)
 
-![Screen Shot 1](https://user-images.githubusercontent.com/6248794/146659272-76d64081-9ec5-47ae-8e83-321c39969e08.png)
+
+![Screen Shot 1](https://user-images.githubusercontent.com/6248794/147509998-e071e5da-ddf3-46fa-9837-807394396ed8.png)
+
+![Screen Shot 2](https://user-images.githubusercontent.com/6248794/147510000-4dd26464-9d0f-4905-b036-46552b2b25f8.png)
+
 
 * `The Package works only for macOS12 and macOS11 Do not use the Package(.pkg) in another version of macOS`
 
@@ -60,7 +64,7 @@ cd $HOME/HoRNDIS
 make
 ```
 ### Result: Building the source and the Package ⇩
-![Screen Shot Result](https://user-images.githubusercontent.com/6248794/146648597-f7267994-5227-4d96-b0a1-ea81f2d7a23b.png)
+![Screen Shot](https://user-images.githubusercontent.com/6248794/147509856-88702279-7f4f-45ef-a613-3ad55335b948.png)
 
 ## Debugging and Development Notes
 

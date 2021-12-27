@@ -1,0 +1,5 @@
+#!/bin/sh
+echo "Touch Extensions"
+touch "${3}/Library/Extensions/"
+chown -R root:wheel /Library/Extensions/horndis.kext
+chmod -R 755 /Library/Extensions/horndis.kext
