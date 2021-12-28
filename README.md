@@ -21,12 +21,12 @@ For more information, [visit the home page for HoRNDIS on my site](http://www.jo
 
 * Get the installation package [Download Release](https://github.com/chris1111/HoRNDIS/releases/tag/rel9.2)
 
-* Run the installation package
+* Run the installation package for Apple Intel
 - See  ➤ [Package Installation for Apple Intel](https://user-images.githubusercontent.com/6248794/147510275-100e705a-5471-4550-a393-d76c78e6d8ad.png)
 
 ![Screen Shot 1](https://user-images.githubusercontent.com/6248794/147509998-e071e5da-ddf3-46fa-9837-807394396ed8.png)
 
-* Run the installation package
+* Run the installation package for Apple M1
 - See  ➤ [Package Installation for Apple M1](https://user-images.githubusercontent.com/6248794/147513300-8f87e80e-efeb-4da1-a747-ff050a497dbd.png)
 
 ![Screen Shot 2](https://user-images.githubusercontent.com/6248794/147510000-4dd26464-9d0f-4905-b036-46552b2b25f8.png)
